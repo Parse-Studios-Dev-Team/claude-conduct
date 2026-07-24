@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { readFileSync, existsSync, openSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import type { ConductConfig } from './config';
 import type { ConductPaths } from './paths';
 
@@ -50,17 +50,24 @@ export function startDaemon(paths: ConductPaths, config: ConductConfig): void {
       out = 'ignore';
     }
 
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      CONDUCT_COMMAND: paths.commandPath,
+      CONDUCT_PID: paths.pidPath,
+      CONDUCT_VOLUME: String(config.volume),
+      CONDUCT_CROSSFADE_MS: String(config.crossfadeMs),
+      CONDUCT_SILENT: config.silent ? '1' : '0',
+    };
+    if (config.stemsDir) {
+      env.CONDUCT_STEMS_DIR = isAbsolute(config.stemsDir)
+        ? config.stemsDir
+        : join(paths.baseDir, config.stemsDir);
+    }
+
     const child = spawn(command, args, {
       detached: true,
       stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        CONDUCT_COMMAND: paths.commandPath,
-        CONDUCT_PID: paths.pidPath,
-        CONDUCT_VOLUME: String(config.volume),
-        CONDUCT_CROSSFADE_MS: String(config.crossfadeMs),
-        CONDUCT_SILENT: config.silent ? '1' : '0',
-      },
+      env,
     });
     child.unref();
   } catch {
