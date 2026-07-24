@@ -67,8 +67,12 @@ edit. `$CONDUCT_CONFIG` overrides the path.
 | `crossfadeMs` | tier crossfade time |
 | `tier` | threshold overrides for `mapToTier` |
 | `contextWindows` | per-model context sizes for `extractUsage` |
+| `stemsDir` | directory of real WAV stems to play (else synth placeholders) |
 
-> Audio is still on **synth placeholder stems** — real, tuned audio lands with CC-4.
+> **Audio:** the daemon plays synth placeholder tones out of the box. To use real
+> audio, drop a directory of 6 WAV stems in and set `stemsDir` — see
+> [`docs/stems.md`](docs/stems.md) for the spec, or run `npm run export-stems` to
+> get a template you can preview. Tuned stems land with CC-4.
 
 ## Development
 

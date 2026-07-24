@@ -20,6 +20,8 @@ export interface ConductConfig {
   tier: Partial<TierConfig>;
   /** Per-model context-window sizes passed to `extractUsage`. */
   contextWindows: Record<string, number>;
+  /** Directory of real WAV stems to play; relative paths resolve from the project dir. Unset ⇒ synth placeholders. */
+  stemsDir?: string;
 }
 
 export const DEFAULT_CONFIG: ConductConfig = {
@@ -68,6 +70,9 @@ export function loadConfig(configPath: string): ConductConfig {
   if (isPlainObject(parsed.tier)) config.tier = parsed.tier as Partial<TierConfig>;
   if (isPlainObject(parsed.contextWindows)) {
     config.contextWindows = parsed.contextWindows as Record<string, number>;
+  }
+  if (typeof parsed.stemsDir === 'string' && parsed.stemsDir.length > 0) {
+    config.stemsDir = parsed.stemsDir;
   }
   return config;
 }
