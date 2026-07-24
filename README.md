@@ -13,7 +13,7 @@ statusline.
 ```
 PostToolUse / Stop hooks
   → extractUsage(transcript)     usage snapshot from the session JSONL   [CC-1 ✓]
-  → mapToTier(usage)             {ensembleSize 0–5, richness 0–2}         [CC-2]
+  → mapToTier(usage)             {ensembleSize 0–5, richness 0–2}         [CC-2 ✓]
   → state check                  emit only when the tier actually changes [CC-3]
   → playback daemon              crossfades pre-made stems                [CC-5, CC-4]
 ```
@@ -27,8 +27,8 @@ format the extractor relies on.
 | Ticket | What | State |
 | ------ | ---- | ----- |
 | **CC-1** | Session usage extractor (`extractUsage`) | ✅ done — pure module + tests, validated on a live session |
-| CC-2 | Tier mapping function | next |
-| CC-3 | State persistence | |
+| **CC-2** | Tier mapping function (`mapToTier`) | ✅ done — pure, configurable thresholds, unit-tested |
+| CC-3 | State persistence | next |
 | CC-4 | Stem asset pipeline (prep, not code) | |
 | CC-5 | Playback daemon (crossfade engine) | |
 | CC-6 | Hook wiring + config | |
@@ -69,3 +69,25 @@ const usage = extractUsage(process.env.TRANSCRIPT_PATH!);
 
 Never throws on a missing/unreadable/partial transcript — it returns
 `{ tokens: 0, contextPct: 0, model: null }` so a hook can call it unguarded.
+
+### `mapToTier(usage, config?)`
+
+Pure function mapping a `Usage` snapshot to the musical `Tier` the daemon
+renders. No I/O, fully deterministic, every threshold configurable:
+
+```ts
+import { extractUsage } from './src/extractUsage';
+import { mapToTier } from './src/mapToTier';
+
+mapToTier(extractUsage(process.env.TRANSCRIPT_PATH!));
+// → { ensembleSize: 3, richness: 1 }
+```
+
+| field | range | driven by |
+| ----- | ----- | --------- |
+| `ensembleSize` | `0–5` | the stronger of latest-turn `tokens` and `contextPct`, plus a per-model bump |
+| `richness` | `0–2` | `contextPct` (session depth) |
+
+Defaults (all overridable via `config`, see `DEFAULT_TIER_CONFIG`) place the
+CC-2 example inputs at: 600 tokens → `ensembleSize 1` (Haiku) / `2` (Opus);
+3000 tokens → `3` / `4`; near the context limit → `{ ensembleSize: 5, richness: 2 }`.

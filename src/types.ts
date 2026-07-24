@@ -42,6 +42,28 @@ export interface Usage {
   model: string | null;
 }
 
+/**
+ * Musical "tier" the daemon renders. Produced by `mapToTier` (CC-2) from a
+ * {@link Usage} snapshot and consumed by the state layer (CC-3) and the
+ * playback daemon (CC-5).
+ */
+export interface Tier {
+  /**
+   * How many instrument layers / stems play, `0–5` — the primary "how big does
+   * it sound" knob. Rises with the *stronger* of the latest turn's activity
+   * ({@link Usage.tokens}) and the session's context occupancy
+   * ({@link Usage.contextPct}), plus a per-model bump so a higher tier model
+   * sounds fuller at the same usage.
+   */
+  ensembleSize: number;
+
+  /**
+   * Harmonic depth / orchestration density, `0–2`. A slower axis driven purely
+   * by context occupancy: the deeper into the session, the richer the texture.
+   */
+  richness: number;
+}
+
 /** Options for {@link extractUsage} / {@link extractUsageFromString}. */
 export interface ExtractOptions {
   /**
