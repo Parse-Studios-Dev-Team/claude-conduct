@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { TierConfig } from '../mapToTier';
 
 /**
@@ -75,4 +76,22 @@ export function loadConfig(configPath: string): ConductConfig {
     config.stemsDir = parsed.stemsDir;
   }
   return config;
+}
+
+/**
+ * Merge `patch` into the config file on disk, preserving any keys we don't manage
+ * (and not writing out defaults). Creates the file/dir if needed. Used by
+ * `/conduct` to persist `mute`/`volume`.
+ */
+export function updateConfig(configPath: string, patch: Partial<ConductConfig>): void {
+  let existing: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(configPath, 'utf8'));
+    if (isPlainObject(parsed)) existing = parsed;
+  } catch {
+    /* no/!valid file yet — start from empty */
+  }
+  const merged = { ...existing, ...patch };
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
 }

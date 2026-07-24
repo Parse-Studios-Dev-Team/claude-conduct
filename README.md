@@ -56,8 +56,8 @@ format the extractor relies on.
 | CC-4 | Stem asset pipeline (prep, not code) | pending — commission vs. license decision |
 | **CC-5** | Playback daemon (crossfade engine) | ✅ done — pure click-free mixer, watched-file transport, runs on synth stems |
 | **CC-6** | Hook wiring + config | ✅ done — hooks → pipeline → daemon, config (mute/volume/thresholds), fast bundled entrypoint |
-| CC-7 | CLI controls (`/conduct …`) | next (fast-follow) |
-| CC-8 | Model-tier timbre mapping | future / P2 |
+| **CC-7** | CLI controls (`/conduct …`) | ✅ done — status/mute/unmute/volume, live via the daemon |
+| CC-8 | Model-tier timbre mapping | next (P2) |
 
 ## Install & activate (CC-6)
 
@@ -96,6 +96,20 @@ edit. `$CONDUCT_CONFIG` overrides the path.
 > audio, drop a directory of 6 WAV stems in and set `stemsDir` — see
 > [`docs/stems.md`](docs/stems.md) for the spec, or run `npm run export-stems` to
 > get a template you can preview. Tuned stems land with CC-4.
+
+### Controls — `/conduct` (CC-7)
+
+Once hooks are installed, control playback from within Claude Code:
+
+| command | effect |
+| ------- | ------ |
+| `/conduct status` | daemon state, mute/volume, current session usage + tier |
+| `/conduct mute` | silence output — **persists** (in config) until unmuted |
+| `/conduct unmute` | resume; restores volume and the current tier |
+| `/conduct volume <n>` | set volume live — `0–1` or a percent like `80` |
+
+`mute` and `volume` apply to the running daemon immediately (and persist in
+`conduct.config.json`). Same commands work from a shell: `npm run conduct -- status`.
 
 ## Development
 
