@@ -31,7 +31,7 @@ export class ConductDaemon {
   private readonly conductor: Conductor;
   private readonly opts: DaemonOptions;
   private watcher: FSWatcher | undefined;
-  private timer: NodeJS.Timeout | undefined;
+  private pumping = false;
   private running = false;
 
   constructor(stems: Float32Array[], sink: Sink, opts: DaemonOptions) {
@@ -79,18 +79,50 @@ export class ConductDaemon {
       }
     }
 
-    if (this.opts.autoRender !== false) {
-      const intervalMs = Math.max(5, Math.round((this.conductor.blockFrames / this.conductor.mixer.sampleRate) * 1000));
-      this.timer = setInterval(() => {
-        try {
-          this.conductor.renderBlock();
-        } catch {
-          /* a bad render must not kill the daemon */
+    if (this.opts.autoRender !== false) this.startPump();
+  }
+
+  /**
+   * Continuously feed the sink using backpressure: write blocks until the sink
+   * says it's full, then wait for `drain`. This keeps the audio device buffer
+   * topped up so event-loop jitter can't starve it (the cause of underrun
+   * clicks) — no fixed-interval timer. A write-ahead cap bounds how far ahead we
+   * render if a sink applies weak/no backpressure.
+   */
+  private startPump(): void {
+    if (this.pumping) return;
+    this.pumping = true;
+
+    const blockMs = (this.conductor.blockFrames / this.conductor.mixer.sampleRate) * 1000;
+    const maxAhead = Math.max(4, Math.ceil(1000 / Math.max(1, blockMs))); // ~1s of blocks
+
+    const loop = async (): Promise<void> => {
+      while (this.running && this.pumping) {
+        let more = true;
+        let wrote = 0;
+        while (this.running && this.pumping && more && wrote < maxAhead) {
+          try {
+            more = this.conductor.writeBlock();
+          } catch {
+            more = false; // a bad render must not kill the daemon
+          }
+          wrote += 1;
         }
-      }, intervalMs);
-      // Don't keep the event loop alive just for audio.
-      this.timer.unref?.();
-    }
+        if (!this.running || !this.pumping) break;
+        if (!more) {
+          try {
+            await this.conductor.drain();
+          } catch {
+            break;
+          }
+        } else {
+          // Sink took everything without backpressure — pace so we don't run away.
+          await new Promise<void>((resolve) => setTimeout(resolve, Math.max(1, Math.round(blockMs))));
+        }
+      }
+    };
+
+    void loop();
   }
 
   /** Render one block manually (used when `autoRender` is disabled). */
@@ -112,11 +144,8 @@ export class ConductDaemon {
   stop(): void {
     if (!this.running) return;
     this.running = false;
+    this.pumping = false; // the pump loop checks these flags and exits
 
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = undefined;
-    }
     if (this.watcher) {
       try {
         this.watcher.close();
