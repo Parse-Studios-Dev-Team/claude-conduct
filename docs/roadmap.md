@@ -30,7 +30,7 @@ CC-1→2→3 data pipeline; CC-6 wires the two tracks together.
 | CC-2 (PAR-69) | Tier mapping function | Med | ✅ Pure `mapToTier({tokens, contextPct, model})` → `{ensembleSize: 0–5, richness: 0–2}`. Configurable thresholds, unit-tested. |
 | CC-3 (PAR-70) | State persistence | Med | ✅ `recordTier` / `clearSession` — last-emitted tier per `session_id`, emit only on change, atomic writes, hook-safe. `.claude/conduct-state.json`. |
 | CC-4 (PAR-71) | Stem asset pipeline | Med | Prep, not code — 5–6 loopable stems, same key/tempo/bars, any subset sounds intentional. Commission vs. license TBD. |
-| CC-5 (PAR-72) | Playback daemon | Med | Persistent process; loads stems once, crossfades on tier-change command (~1–2s, no pops). |
+| CC-5 (PAR-72) | Playback daemon | Med | ✅ Persistent process; loads stems once, crossfades on tier-change command (~1–2s, no pops). Pure click-free mixer, watched-file transport, synth placeholder stems, optional `speaker` output. |
 | CC-6 (PAR-73) | Hook wiring + config | Med | Wire `PostToolUse`/`Stop` → extractor → mapper → state → daemon. Fails silently if daemon down. |
 | CC-7 (PAR-74) | CLI controls | Low | `/conduct status\|mute\|unmute\|volume <n>`. Mute persists for the session. |
 | CC-8 (PAR-75) | Model-tier timbre | Low | Distinct voicing when Opus is active. Future / P2. |
