@@ -34,9 +34,19 @@ export class Conductor {
     this.mixer.setTargets(tierToGains(tier, this.layout));
   }
 
-  /** Render one block and hand it to the sink. */
+  /** Render one block and hand it to the sink; returns whether the sink can take more now. */
+  writeBlock(): boolean {
+    return this.sink.write(this.mixer.render(this.blockFrames));
+  }
+
+  /** Render one block, ignoring backpressure (manual/test use). */
   renderBlock(): void {
-    this.sink.write(this.mixer.render(this.blockFrames));
+    this.writeBlock();
+  }
+
+  /** Resolves when the sink is ready for more audio. */
+  drain(): Promise<void> {
+    return this.sink.drain();
   }
 
   close(): void {

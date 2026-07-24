@@ -14,8 +14,12 @@ class CapturingSink implements Sink {
   blocks: Float32Array[] = [];
   closed = false;
   constructor(readonly sampleRate = 1000) {}
-  write(block: Float32Array): void {
+  write(block: Float32Array): boolean {
     this.blocks.push(block);
+    return true;
+  }
+  drain(): Promise<void> {
+    return Promise.resolve();
   }
   close(): void {
     this.closed = true;
@@ -123,6 +127,50 @@ test('start() is idempotent and does not double-run', () => {
     assert.doesNotThrow(() => daemon.start());
     assert.equal(daemon.isRunning, true);
     daemon.stop();
+  });
+});
+
+// --- autoRender backpressure pump -------------------------------------------
+
+test('autoRender pump feeds the sink with backpressure and stops cleanly', async () => {
+  await withTmp(async ({ commandPath, pidPath }) => {
+    // Accepts 3 blocks, then applies backpressure (write → false); drains fast.
+    class BackpressureSink implements Sink {
+      writes = 0;
+      private since = 0;
+      constructor(readonly sampleRate = 1000) {}
+      write(_block: Float32Array): boolean {
+        this.writes += 1;
+        this.since += 1;
+        if (this.since >= 3) {
+          this.since = 0;
+          return false;
+        }
+        return true;
+      }
+      drain(): Promise<void> {
+        return new Promise((r) => setTimeout(r, 2));
+      }
+      close(): void {}
+    }
+
+    const sink = new BackpressureSink();
+    const daemon = new ConductDaemon(stems(), sink, {
+      commandPath,
+      pidPath,
+      autoRender: true,
+      blockFrames: 16,
+    });
+    daemon.start();
+
+    await sleep(30);
+    const mid = sink.writes;
+    assert.ok(mid > 0, 'the pump produced audio blocks');
+
+    daemon.stop();
+    assert.equal(daemon.isRunning, false);
+    await sleep(20);
+    assert.ok(sink.writes <= mid + 3, 'the pump stopped writing after stop()');
   });
 });
 
