@@ -1,0 +1,4 @@
+{"type":"user","uuid":"u1","timestamp":"2026-07-24T12:00:00.000Z","message":{"role":"user","content":"run a subagent"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","isSidechain":false,"timestamp":"2026-07-24T12:00:01.000Z","message":{"role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":4,"output_tokens":496,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000}},"content":[{"type":"text","text":"main-thread turn"}]}
+{"type":"assistant","uuid":"s1","parentUuid":"a1","isSidechain":true,"timestamp":"2026-07-24T12:00:02.000Z","message":{"role":"assistant","model":"claude-haiku-4-5-20251001","usage":{"input_tokens":2,"output_tokens":5000,"cache_creation_input_tokens":0,"cache_read_input_tokens":100}},"content":[{"type":"text","text":"a big sub-agent turn that must NOT be read as the session state"}]}
+{"type":"ai-title","uuid":"t1","timestamp":"2026-07-24T12:00:03.000Z","aiTitle":"Subagent run"}

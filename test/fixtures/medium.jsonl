@@ -1,0 +1,6 @@
+{"type":"user","uuid":"u1","timestamp":"2026-07-24T12:00:00.000Z","message":{"role":"user","content":"start"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-07-24T12:00:01.000Z","message":{"role":"assistant","model":"claude-sonnet-5","usage":{"input_tokens":8,"output_tokens":1200,"cache_creation_input_tokens":1000,"cache_read_input_tokens":30000}},"content":[{"type":"text","text":"an earlier, different-sized turn"}]}
+{"type":"user","uuid":"u2","timestamp":"2026-07-24T12:00:02.000Z","message":{"role":"user","content":"continue"}}
+{"type":"assistant","uuid":"a2","parentUuid":"u2","timestamp":"2026-07-24T12:00:03.000Z","message":{"role":"assistant","model":"claude-sonnet-5","usage":{"input_tokens":10,"output_tokens":2990,"cache_creation_input_tokens":2000,"cache_read_input_tokens":48000}},"content":[{"type":"text","text":"the latest complete turn"}]}
+{"type":"assistant","uuid":"a3","parentUuid":"a2","timestamp":"2026-07-24T12:00:04.000Z","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"text","text":"a trailing assistant remnant with no usage block"}]}}
+{"type":"ai-title","uuid":"t1","timestamp":"2026-07-24T12:00:05.000Z","aiTitle":"Some auto-generated title"}

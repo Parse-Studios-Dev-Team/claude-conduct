@@ -1,0 +1,2 @@
+{"type":"user","uuid":"u1","timestamp":"2026-07-24T12:00:00.000Z","message":{"role":"user","content":"hi"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-07-24T12:00:01.000Z","message":{"role":"assistant","model":"claude-haiku-4-5-20251001","stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":595,"cache_creation_input_tokens":0,"cache_read_input_tokens":2000,"service_tier":"standard"},"content":[{"type":"text","text":"hello"}]}}

@@ -1,0 +1,17 @@
+{
+  "name": "claude-conduct",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Ambient background music that scales with Claude Code session complexity (token/context usage + model tier).",
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
