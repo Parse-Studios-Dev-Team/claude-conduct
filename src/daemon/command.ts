@@ -19,7 +19,12 @@ function clamp01(n: number): number {
 export function serializeCommand(command: Command, now: number = Date.now()): string {
   const payload: Record<string, unknown> = { ts: now };
   if (command.tier) {
-    payload.tier = { ensembleSize: command.tier.ensembleSize, richness: command.tier.richness };
+    const tier: Record<string, number> = {
+      ensembleSize: command.tier.ensembleSize,
+      richness: command.tier.richness,
+    };
+    if (command.tier.timbre !== undefined) tier.timbre = command.tier.timbre;
+    payload.tier = tier;
   }
   if (typeof command.volume === 'number' && Number.isFinite(command.volume)) {
     payload.volume = clamp01(command.volume);
@@ -41,7 +46,11 @@ export function parseCommand(text: string): Command | null {
 
   const tier = (parsed as { tier?: unknown }).tier;
   if (tier && typeof tier === 'object') {
-    const { ensembleSize, richness } = tier as { ensembleSize?: unknown; richness?: unknown };
+    const { ensembleSize, richness, timbre } = tier as {
+      ensembleSize?: unknown;
+      richness?: unknown;
+      timbre?: unknown;
+    };
     if (
       typeof ensembleSize === 'number' &&
       typeof richness === 'number' &&
@@ -49,6 +58,7 @@ export function parseCommand(text: string): Command | null {
       Number.isFinite(richness)
     ) {
       command.tier = { ensembleSize, richness };
+      if (typeof timbre === 'number' && Number.isFinite(timbre)) command.tier.timbre = timbre;
     }
   }
 

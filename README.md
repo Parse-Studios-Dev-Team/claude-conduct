@@ -57,7 +57,7 @@ format the extractor relies on.
 | **CC-5** | Playback daemon (crossfade engine) | ✅ done — pure click-free mixer, watched-file transport, runs on synth stems |
 | **CC-6** | Hook wiring + config | ✅ done — hooks → pipeline → daemon, config (mute/volume/thresholds), fast bundled entrypoint |
 | **CC-7** | CLI controls (`/conduct …`) | ✅ done — status/mute/unmute/volume, live via the daemon |
-| CC-8 | Model-tier timbre mapping | next (P2) |
+| **CC-8** | Model-tier timbre mapping | ✅ done — high-end (Opus) signature layer, independent of tokens |
 
 ## Install & activate (CC-6)
 
@@ -163,6 +163,7 @@ mapToTier(extractUsage(process.env.TRANSCRIPT_PATH!));
 | ----- | ----- | --------- |
 | `ensembleSize` | `0–5` | the stronger of latest-turn `tokens` and `contextPct`, plus a per-model bump |
 | `richness` | `0–2` | `contextPct` (session depth) |
+| `timbre` | `0–1` | `1` for high-end models (Opus) — a distinct signature layer, independent of token count (CC-8) |
 
 Defaults (all overridable via `config`, see `DEFAULT_TIER_CONFIG`) place the
 CC-2 example inputs at: 600 tokens → `ensembleSize 1` (Haiku) / `2` (Opus);

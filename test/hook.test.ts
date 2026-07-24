@@ -202,10 +202,19 @@ test('end-to-end wiring: a real transcript drives a real command + state file, a
     };
 
     const first = handleEvent(input, DEFAULT_CONFIG, p, deps);
-    assert.deepEqual(first.emitted, { ensembleSize: 5, richness: 2 }); // large.jsonl → full tier
+    // large.jsonl is Opus → full tier + high-end timbre signature.
+    assert.deepEqual(first.emitted, { ensembleSize: 5, richness: 2, timbre: 1 });
     assert.ok(existsSync(p.commandPath), 'command file written');
-    assert.deepEqual(parseCommand(readFileSync(p.commandPath, 'utf8'))?.tier, { ensembleSize: 5, richness: 2 });
-    assert.deepEqual(readState(p.statePath).sessions['sess']?.tier, { ensembleSize: 5, richness: 2 });
+    assert.deepEqual(parseCommand(readFileSync(p.commandPath, 'utf8'))?.tier, {
+      ensembleSize: 5,
+      richness: 2,
+      timbre: 1,
+    });
+    assert.deepEqual(readState(p.statePath).sessions['sess']?.tier, {
+      ensembleSize: 5,
+      richness: 2,
+      timbre: 1,
+    });
 
     // Same transcript again → deduped, nothing re-emitted.
     const second = handleEvent(input, DEFAULT_CONFIG, p, deps);

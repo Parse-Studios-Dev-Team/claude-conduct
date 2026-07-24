@@ -33,7 +33,7 @@ CC-1→2→3 data pipeline; CC-6 wires the two tracks together.
 | CC-5 (PAR-72) | Playback daemon | Med | ✅ Persistent process; loads stems once, crossfades on tier-change command (~1–2s, no pops). Pure click-free mixer, watched-file transport, synth placeholder stems, optional `speaker` output. |
 | CC-6 (PAR-73) | Hook wiring + config | Med | ✅ Wire `PostToolUse`/`Stop`/`SessionStart`/`SessionEnd` → extractor → mapper → state → daemon. Config (mute/volume/thresholds), fast bundled entrypoint, `install-hooks`. Fails silently if daemon down. |
 | CC-7 (PAR-74) | CLI controls | Low | ✅ `/conduct status\|mute\|unmute\|volume <n>` (CLI + slash command). Mute/volume persist in config and apply live via an extended command protocol. |
-| CC-8 (PAR-75) | Model-tier timbre | Low | Distinct voicing when Opus is active. Future / P2. |
+| CC-8 (PAR-75) | Model-tier timbre | Low | ✅ Distinct voicing when Opus is active — `Tier.timbre` axis mapped from model, gates a signature stem, configurable via `highEndModels`. |
 
 ## CC-1 → CC-2 contract
 
