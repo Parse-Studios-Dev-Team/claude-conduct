@@ -13,6 +13,7 @@
  * CONDUCT_CROSSFADE_MS, CONDUCT_SILENT=1.
  */
 import { synthesizeStems } from '../src/audio/synth';
+import { loadStems } from '../src/audio/loadStems';
 import { stemCount, DEFAULT_LAYOUT } from '../src/audio/tierGains';
 import { NullSink, createSpeakerSink, type Sink } from '../src/audio/sink';
 import { ConductDaemon } from '../src/daemon/server';
@@ -35,8 +36,24 @@ async function main(): Promise<void> {
   const crossfadeMs = num(process.env.CONDUCT_CROSSFADE_MS, 1_500);
   const silent = process.argv.includes('--silent') || process.env.CONDUCT_SILENT === '1';
 
-  // Placeholder stems until CC-4 delivers real ones.
-  const stems = synthesizeStems(stemCount(DEFAULT_LAYOUT), { sampleRate });
+  // Real stems from CONDUCT_STEMS_DIR if present and loadable; else synth placeholders.
+  const count = stemCount(DEFAULT_LAYOUT);
+  const stemsDir = process.env.CONDUCT_STEMS_DIR;
+  let stems: Float32Array[];
+  let stemSource: string;
+  if (stemsDir) {
+    try {
+      stems = loadStems(stemsDir, { count, sampleRate });
+      stemSource = `stems: ${stemsDir}`;
+    } catch (error) {
+      console.warn(`[conduct] could not load stems from ${stemsDir}: ${(error as Error).message} — using synth.`);
+      stems = synthesizeStems(count, { sampleRate });
+      stemSource = 'synth (stem load failed)';
+    }
+  } else {
+    stems = synthesizeStems(count, { sampleRate });
+    stemSource = 'synth';
+  }
 
   let sink: Sink;
   if (silent) {
@@ -53,7 +70,7 @@ async function main(): Promise<void> {
   const daemon = new ConductDaemon(stems, sink, { commandPath, pidPath, masterGain, crossfadeMs });
   daemon.start();
   const mode = sink instanceof NullSink ? 'silent' : 'audio';
-  console.log(`[conduct] daemon up (${mode}, vol ${masterGain}); watching ${commandPath}`);
+  console.log(`[conduct] daemon up (${mode}, vol ${masterGain}, ${stemSource}); watching ${commandPath}`);
 
   let stopping = false;
   const shutdown = (): void => {

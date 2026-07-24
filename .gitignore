@@ -17,6 +17,9 @@ npm-debug.log*
 # Local user config (commit conduct.config.example.json instead)
 conduct.config.json
 
+# Generated stem preview (npm run export-stems)
+stems-preview/
+
 # OS / editor
 .DS_Store
 *.swp
