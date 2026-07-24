@@ -14,7 +14,7 @@ statusline.
 PostToolUse / Stop hooks
   → extractUsage(transcript)     usage snapshot from the session JSONL   [CC-1 ✓]
   → mapToTier(usage)             {ensembleSize 0–5, richness 0–2}         [CC-2 ✓]
-  → state check                  emit only when the tier actually changes [CC-3]
+  → state check                  emit only when the tier actually changes [CC-3 ✓]
   → playback daemon              crossfades pre-made stems                [CC-5, CC-4]
 ```
 
@@ -28,8 +28,8 @@ format the extractor relies on.
 | ------ | ---- | ----- |
 | **CC-1** | Session usage extractor (`extractUsage`) | ✅ done — pure module + tests, validated on a live session |
 | **CC-2** | Tier mapping function (`mapToTier`) | ✅ done — pure, configurable thresholds, unit-tested |
-| CC-3 | State persistence | next |
-| CC-4 | Stem asset pipeline (prep, not code) | |
+| **CC-3** | State persistence (`recordTier`) | ✅ done — per-session dedupe, atomic writes, hook-safe |
+| CC-4 | Stem asset pipeline (prep, not code) | next |
 | CC-5 | Playback daemon (crossfade engine) | |
 | CC-6 | Hook wiring + config | |
 | CC-7 | CLI controls (`/conduct …`) | fast-follow |
@@ -91,3 +91,23 @@ mapToTier(extractUsage(process.env.TRANSCRIPT_PATH!));
 Defaults (all overridable via `config`, see `DEFAULT_TIER_CONFIG`) place the
 CC-2 example inputs at: 600 tokens → `ensembleSize 1` (Haiku) / `2` (Opus);
 3000 tokens → `3` / `4`; near the context limit → `{ ensembleSize: 5, richness: 2 }`.
+
+### `recordTier(statePath, sessionId, tier, options?)`
+
+Decides whether a tier change is worth triggering the daemon, so the same tier
+never fires twice. Last-emitted tier is persisted per `session_id` at
+`.claude/conduct-state.json` (atomic temp-file + rename; git-ignored).
+
+```ts
+import { recordTier, clearSession } from './src/state';
+
+const { emit } = recordTier('.claude/conduct-state.json', sessionId, tier);
+if (emit) { /* send the tier to the playback daemon */ }
+
+// on SessionEnd:
+clearSession('.claude/conduct-state.json', sessionId);
+```
+
+First call for a new session always emits; a repeat at the same tier emits
+nothing and doesn't rewrite the file. Never throws — a failed persist still
+returns the correct `emit` so a hook is never blocked.
