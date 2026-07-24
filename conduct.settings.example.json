@@ -1,0 +1,17 @@
+{
+  "_comment": "Merge this `hooks` block into .claude/settings.json (or run `npm run install-hooks`). Requires `npm run build` first so dist/conduct-hook.mjs exists. One entrypoint handles all four events, dispatching on hook_event_name.",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/dist/conduct-hook.mjs\"" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/dist/conduct-hook.mjs\"" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/dist/conduct-hook.mjs\"" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/dist/conduct-hook.mjs\"" }] }
+    ]
+  }
+}
