@@ -29,7 +29,7 @@ CC-1→2→3 data pipeline; CC-6 wires the two tracks together.
 | **CC-1** (PAR-68) | Session usage extractor | High | ✅ `extractUsage(path)` → `{tokens, contextPct, model}`. Pure module, unit-tested, validated live. |
 | CC-2 (PAR-69) | Tier mapping function | Med | ✅ Pure `mapToTier({tokens, contextPct, model})` → `{ensembleSize: 0–5, richness: 0–2}`. Configurable thresholds, unit-tested. |
 | CC-3 (PAR-70) | State persistence | Med | ✅ `recordTier` / `clearSession` — last-emitted tier per `session_id`, emit only on change, atomic writes, hook-safe. `.claude/conduct-state.json`. |
-| CC-4 (PAR-71) | Stem asset pipeline | Med | Prep, not code — 5–6 loopable stems, same key/tempo/bars, any subset sounds intentional. Commission vs. license TBD. |
+| CC-4 (PAR-71) | Stem asset pipeline | Med | Prep — 5–6 loopable stems, same key/tempo/bars, any subset consonant. **Loader + format now built** (`loadStems`, `CONDUCT_STEMS_DIR`/`stemsDir`, `docs/stems.md`, `export-stems`); only the audio (commission vs. license) remains. |
 | CC-5 (PAR-72) | Playback daemon | Med | ✅ Persistent process; loads stems once, crossfades on tier-change command (~1–2s, no pops). Pure click-free mixer, watched-file transport, synth placeholder stems, optional `speaker` output. |
 | CC-6 (PAR-73) | Hook wiring + config | Med | ✅ Wire `PostToolUse`/`Stop`/`SessionStart`/`SessionEnd` → extractor → mapper → state → daemon. Config (mute/volume/thresholds), fast bundled entrypoint, `install-hooks`. Fails silently if daemon down. |
 | CC-7 (PAR-74) | CLI controls | Low | `/conduct status\|mute\|unmute\|volume <n>`. Mute persists for the session. |
