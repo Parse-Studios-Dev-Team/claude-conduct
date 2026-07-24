@@ -13,6 +13,6 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["src", "test"],
+  "include": ["src", "test", "bin", "scripts"],
   "exclude": ["node_modules", "dist"]
 }

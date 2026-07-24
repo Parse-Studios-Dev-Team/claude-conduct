@@ -7,7 +7,8 @@
   "scripts": {
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc"
+    "build": "tsc",
+    "daemon": "tsx bin/conduct-daemon.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
