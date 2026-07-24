@@ -12,6 +12,10 @@ npm-debug.log*
 .claude/conduct-state.json
 .claude/conduct-command.json
 .claude/conduct.pid
+.claude/conduct-daemon.log
+
+# Local user config (commit conduct.config.example.json instead)
+conduct.config.json
 
 # OS / editor
 .DS_Store

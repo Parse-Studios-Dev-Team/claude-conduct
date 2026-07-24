@@ -1,0 +1,13 @@
+{
+  "mute": false,
+  "volume": 0.8,
+  "silent": false,
+  "crossfadeMs": 1500,
+  "tier": {
+    "tokenThresholds": [500, 1500, 3000, 6000, 12000],
+    "contextThresholds": [30, 50, 70, 85, 95],
+    "richnessThresholds": [50, 85],
+    "modelBump": { "claude-opus": 1 }
+  },
+  "contextWindows": {}
+}

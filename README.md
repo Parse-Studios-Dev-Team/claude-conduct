@@ -31,9 +31,44 @@ format the extractor relies on.
 | **CC-3** | State persistence (`recordTier`) | ✅ done — per-session dedupe, atomic writes, hook-safe |
 | CC-4 | Stem asset pipeline (prep, not code) | pending — commission vs. license decision |
 | **CC-5** | Playback daemon (crossfade engine) | ✅ done — pure click-free mixer, watched-file transport, runs on synth stems |
-| CC-6 | Hook wiring + config | next (ties CC-1→3 + CC-5 together) |
-| CC-7 | CLI controls (`/conduct …`) | fast-follow |
+| **CC-6** | Hook wiring + config | ✅ done — hooks → pipeline → daemon, config (mute/volume/thresholds), fast bundled entrypoint |
+| CC-7 | CLI controls (`/conduct …`) | next (fast-follow) |
 | CC-8 | Model-tier timbre mapping | future / P2 |
+
+## Install & activate (CC-6)
+
+```bash
+npm install
+npm run build          # bundles the fast hook + daemon entrypoints into dist/
+npm run install-hooks  # registers the hooks in .claude/settings.json (idempotent)
+```
+
+Then verify with **`/hooks`** in Claude Code. The single entrypoint
+`dist/conduct-hook.mjs` handles all four events (dispatching on
+`hook_event_name`):
+
+- **SessionStart** → launches the playback daemon (detached)
+- **PostToolUse / Stop** → `extractUsage → mapToTier → recordTier → sendTier`
+- **SessionEnd** → stops the daemon and clears the session's state
+
+It runs as compiled JS (~40ms), not `tsx`, because it fires on every tool use.
+If the daemon isn't running, the hook still exits 0 — **it never blocks a turn.**
+
+### Configuration
+
+Copy `conduct.config.example.json` to `conduct.config.json` (git-ignored) and
+edit. `$CONDUCT_CONFIG` overrides the path.
+
+| key | effect |
+| --- | ------ |
+| `mute` | drive every turn to silence |
+| `volume` | daemon master gain `0..1` |
+| `silent` | force headless output (no `speaker`) |
+| `crossfadeMs` | tier crossfade time |
+| `tier` | threshold overrides for `mapToTier` |
+| `contextWindows` | per-model context sizes for `extractUsage` |
+
+> Audio is still on **synth placeholder stems** — real, tuned audio lands with CC-4.
 
 ## Development
 
