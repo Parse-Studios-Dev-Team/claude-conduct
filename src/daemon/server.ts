@@ -48,6 +48,11 @@ export class ConductDaemon {
     return this.conductor.mixer.getTargets();
   }
 
+  /** Current master volume `0..1` — for introspection and tests. */
+  get volume(): number {
+    return this.conductor.mixer.getMasterGain();
+  }
+
   /** Idempotent start: apply any existing command, begin watching, write the pidfile, start rendering. */
   start(): void {
     if (this.running) return;
@@ -130,11 +135,13 @@ export class ConductDaemon {
     this.conductor.renderBlock();
   }
 
-  /** Re-read the command file and crossfade to its tier, if valid. */
+  /** Re-read the command file and apply its tier and/or volume, if valid. */
   refresh(): void {
     try {
-      const tier = parseCommand(readFileSync(this.opts.commandPath, 'utf8'));
-      if (tier) this.conductor.setTier(tier);
+      const command = parseCommand(readFileSync(this.opts.commandPath, 'utf8'));
+      if (!command) return;
+      if (command.tier) this.conductor.setTier(command.tier);
+      if (command.volume !== undefined) this.conductor.setVolume(command.volume);
     } catch {
       /* file may not exist yet */
     }

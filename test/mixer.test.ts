@@ -112,3 +112,16 @@ test('render(0) and negative frame counts yield an empty block', () => {
   assert.equal(m.render(0).length, 0);
   assert.equal(m.render(-10).length, 0);
 });
+
+test('setMasterGain scales output and clamps to [0,1]', () => {
+  const m = new Mixer([flat(4)], { masterGain: 1 });
+  m.setTargets([1]);
+  m.snapToTargets();
+  assert.equal(m.render(1)[0], 1);
+  m.setMasterGain(0.5);
+  assert.ok(Math.abs(m.render(1)[0]! - 0.5) < 1e-6);
+  m.setMasterGain(5);
+  assert.equal(m.getMasterGain(), 1);
+  m.setMasterGain(-1);
+  assert.equal(m.getMasterGain(), 0);
+});
