@@ -27,7 +27,7 @@ CC-1→2→3 data pipeline; CC-6 wires the two tracks together.
 | ID | Ticket | Pri | Summary |
 | -- | ------ | --- | ------- |
 | **CC-1** (PAR-68) | Session usage extractor | High | ✅ `extractUsage(path)` → `{tokens, contextPct, model}`. Pure module, unit-tested, validated live. |
-| CC-2 (PAR-69) | Tier mapping function | Med | Pure `mapToTier({tokens, contextPct, model})` → `{ensembleSize: 0–5, richness: 0–2}`. Configurable thresholds. |
+| CC-2 (PAR-69) | Tier mapping function | Med | ✅ Pure `mapToTier({tokens, contextPct, model})` → `{ensembleSize: 0–5, richness: 0–2}`. Configurable thresholds, unit-tested. |
 | CC-3 (PAR-70) | State persistence | Med | Track last-emitted tier per `session_id`; emit only on change. `.claude/conduct-state.json`. |
 | CC-4 (PAR-71) | Stem asset pipeline | Med | Prep, not code — 5–6 loopable stems, same key/tempo/bars, any subset sounds intentional. Commission vs. license TBD. |
 | CC-5 (PAR-72) | Playback daemon | Med | Persistent process; loads stems once, crossfades on tier-change command (~1–2s, no pops). |
