@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Conductor } from '../src/daemon/conductor';
 import { ConductDaemon } from '../src/daemon/server';
-import { sendTier } from '../src/daemon/client';
+import { sendTier, sendCommand } from '../src/daemon/client';
 import { tierToGains } from '../src/audio/tierGains';
 import { synthesizeStems } from '../src/audio/synth';
 import type { Sink } from '../src/audio/sink';
@@ -112,6 +112,21 @@ test('refresh() picks up a newly written command (10 rapid changes converge to t
     }
     assert.deepEqual(daemon.targets, tierToGains(last));
 
+    daemon.stop();
+  });
+});
+
+test('a volume command sets the master gain live', () => {
+  withTmp(({ commandPath, pidPath }) => {
+    const daemon = new ConductDaemon(stems(), new CapturingSink(), {
+      commandPath,
+      pidPath,
+      autoRender: false,
+    });
+    daemon.start();
+    sendCommand(commandPath, { volume: 0.25 });
+    daemon.refresh();
+    assert.equal(daemon.volume, 0.25);
     daemon.stop();
   });
 });

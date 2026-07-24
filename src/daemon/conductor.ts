@@ -34,6 +34,11 @@ export class Conductor {
     this.mixer.setTargets(tierToGains(tier, this.layout));
   }
 
+  /** Set the master volume live (`0..1`) — for `/conduct volume` and mute. */
+  setVolume(volume: number): void {
+    this.mixer.setMasterGain(volume);
+  }
+
   /** Render one block and hand it to the sink; returns whether the sink can take more now. */
   writeBlock(): boolean {
     return this.sink.write(this.mixer.render(this.blockFrames));
