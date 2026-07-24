@@ -8,6 +8,30 @@ statusline.
 > Personal Claude Code plugin. v1 uses fixed-key, layered **stems** (not live
 > generative composition) — more buildable, and it sounds better at this scope.
 
+## Try it
+
+**Hear it in two commands** — no hooks, no Claude Code session needed:
+
+```bash
+npm install
+npm run demo
+```
+
+That walks the ensemble from solo piano up to the full orchestra and back through
+your speakers, so you can hear the crossfades. (Audio uses the `speaker` package,
+installed automatically; add `-- --silent` to just watch the sequence.)
+
+**Score your real sessions:**
+
+```bash
+npm run setup   # build + register the hooks in .claude/settings.json
+```
+
+Then run Claude Code in this repo and check `/hooks`. The music thickens as
+token/context usage climbs, and fades on quiet turns. It plays **synth
+placeholder tones** until you add real stems — see [`docs/stems.md`](docs/stems.md).
+Set `"mute": true` in `conduct.config.json` (or remove the hooks) to stop it.
+
 ## How it works
 
 ```
@@ -39,8 +63,7 @@ format the extractor relies on.
 
 ```bash
 npm install
-npm run build          # bundles the fast hook + daemon entrypoints into dist/
-npm run install-hooks  # registers the hooks in .claude/settings.json (idempotent)
+npm run setup          # = build (bundle entrypoints) + install-hooks (idempotent)
 ```
 
 Then verify with **`/hooks`** in Claude Code. The single entrypoint
