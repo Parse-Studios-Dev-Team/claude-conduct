@@ -11,6 +11,11 @@ test('serialize → parse round-trips a volume command', () => {
   assert.deepEqual(parseCommand(serializeCommand({ volume: 0.5 })), { volume: 0.5 });
 });
 
+test('a tier command round-trips its timbre (CC-8)', () => {
+  const tier = { ensembleSize: 3, richness: 1, timbre: 1 };
+  assert.deepEqual(parseCommand(serializeCommand({ tier })), { tier });
+});
+
 test('a command can carry both tier and volume', () => {
   const cmd = { tier: { ensembleSize: 2, richness: 1 }, volume: 0.3 };
   assert.deepEqual(parseCommand(serializeCommand(cmd)), cmd);
