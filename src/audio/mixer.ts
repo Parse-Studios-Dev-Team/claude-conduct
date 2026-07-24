@@ -30,7 +30,7 @@ export class Mixer {
   /** Max gain change per frame; a full crossfade takes `crossfadeMs`. */
   readonly gainStepPerFrame: number;
 
-  private readonly masterGain: number;
+  private masterGain: number;
   private readonly pcms: Float32Array[];
   private readonly positions: number[];
   private readonly gains: number[];
@@ -75,6 +75,16 @@ export class Mixer {
       const value = targets[i];
       this.targets[i] = clamp(typeof value === 'number' && Number.isFinite(value) ? value : 0, 0, 1);
     }
+  }
+
+  /** Master output gain currently applied to the mix. */
+  getMasterGain(): number {
+    return this.masterGain;
+  }
+
+  /** Set the master output gain, clamped to `[0, 1]` (used for live volume / mute). */
+  setMasterGain(gain: number): void {
+    this.masterGain = clamp(typeof gain === 'number' && Number.isFinite(gain) ? gain : 0, 0, 1);
   }
 
   /** Snap current gains straight to their targets (no ramp) — e.g. a hard reset. */
