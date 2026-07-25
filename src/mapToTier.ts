@@ -42,6 +42,12 @@ export interface TierConfig {
 
   /** Hard cap on `richness`. */
   maxRichness: number;
+
+  /**
+   * Model id prefixes that get the high-end **timbre** signature (`timbre: 1`),
+   * independent of token count (CC-8). Matched as prefixes, like {@link modelBump}.
+   */
+  highEndModels: string[];
 }
 
 /**
@@ -58,6 +64,7 @@ export const DEFAULT_TIER_CONFIG: TierConfig = {
   modelBump: { 'claude-opus': 1 },
   maxEnsemble: 5,
   maxRichness: 2,
+  highEndModels: ['claude-opus'],
 };
 
 function clamp(n: number, min: number, max: number): number {
@@ -112,6 +119,13 @@ export function mapToTier(usage: Usage, config?: Partial<TierConfig>): Tier {
 
   const ensembleSize = clamp(Math.max(tokenLevel, contextLevel) + bump, 0, cfg.maxEnsemble);
   const richness = clamp(levelFor(usage.contextPct, cfg.richnessThresholds), 0, cfg.maxRichness);
+  const timbre = isHighEndModel(usage.model, cfg.highEndModels) ? 1 : 0;
 
-  return { ensembleSize, richness };
+  return { ensembleSize, richness, timbre };
+}
+
+/** True when the model matches any high-end prefix — gets the timbre signature. */
+function isHighEndModel(model: string | null, prefixes: string[]): boolean {
+  if (!model) return false;
+  return prefixes.some((prefix) => model.startsWith(prefix));
 }

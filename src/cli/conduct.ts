@@ -20,8 +20,8 @@ export interface CliDeps {
   findTranscript?: (baseDir: string) => string | null;
 }
 
-const SILENT_TIER: Tier = { ensembleSize: 0, richness: 0 };
-const fmtTier = (t: Tier): string => `E${t.ensembleSize} R${t.richness}`;
+const fmtTier = (t: Tier): string =>
+  `E${t.ensembleSize} R${t.richness}${(t.timbre ?? 0) >= 1 ? ' ✦' : ''}`;
 
 /** The tier last sent to the daemon (from the command file), if any. */
 function currentTier(paths: ConductPaths): Tier | null {

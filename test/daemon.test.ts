@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Conductor } from '../src/daemon/conductor';
 import { ConductDaemon } from '../src/daemon/server';
 import { sendTier, sendCommand } from '../src/daemon/client';
-import { tierToGains } from '../src/audio/tierGains';
+import { tierToGains, stemCount, DEFAULT_LAYOUT } from '../src/audio/tierGains';
 import { synthesizeStems } from '../src/audio/synth';
 import type { Sink } from '../src/audio/sink';
 
@@ -26,7 +26,8 @@ class CapturingSink implements Sink {
   }
 }
 
-const stems = (): Float32Array[] => synthesizeStems(6, { sampleRate: 1000, loopMs: 100 });
+const stems = (): Float32Array[] =>
+  synthesizeStems(stemCount(DEFAULT_LAYOUT), { sampleRate: 1000, loopMs: 100 });
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function withTmp(fn: (paths: { commandPath: string; pidPath: string }) => void | Promise<void>) {

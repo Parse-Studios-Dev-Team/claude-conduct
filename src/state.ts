@@ -59,9 +59,13 @@ function isSessionState(value: unknown): value is SessionState {
   );
 }
 
-/** True when two tiers are identical on both axes. */
+/** True when two tiers are identical on all axes (ensemble, richness, timbre). */
 export function tiersEqual(a: Tier, b: Tier): boolean {
-  return a.ensembleSize === b.ensembleSize && a.richness === b.richness;
+  return (
+    a.ensembleSize === b.ensembleSize &&
+    a.richness === b.richness &&
+    (a.timbre ?? 0) === (b.timbre ?? 0)
+  );
 }
 
 /**
@@ -161,8 +165,10 @@ export function recordTier(
 
   if (emit) {
     // Store a fresh copy so we never retain the caller's object reference.
+    const storedTier: Tier = { ensembleSize: tier.ensembleSize, richness: tier.richness };
+    if (tier.timbre !== undefined) storedTier.timbre = tier.timbre;
     state.sessions[sessionId] = {
-      tier: { ensembleSize: tier.ensembleSize, richness: tier.richness },
+      tier: storedTier,
       updatedAt: new Date(nowMs).toISOString(),
     };
     mutated = true;
