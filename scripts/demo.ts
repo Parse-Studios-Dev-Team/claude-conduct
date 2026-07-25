@@ -24,13 +24,14 @@ const holdMs = Number(process.env.CONDUCT_DEMO_HOLD_MS) || 2500;
 const silent = process.argv.includes('--silent') || process.env.CONDUCT_SILENT === '1';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const sweep: Array<{ ensembleSize: number; richness: number; label: string }> = [
+const sweep: Array<{ ensembleSize: number; richness: number; timbre?: number; label: string }> = [
   { ensembleSize: 1, richness: 0, label: 'solo piano' },
   { ensembleSize: 2, richness: 0, label: '+ strings' },
   { ensembleSize: 3, richness: 0, label: '+ woodwinds' },
   { ensembleSize: 4, richness: 1, label: '+ brass, pad fades in' },
   { ensembleSize: 5, richness: 2, label: 'full ensemble' },
-  { ensembleSize: 3, richness: 1, label: 'ease back' },
+  { ensembleSize: 5, richness: 2, timbre: 1, label: 'full + Opus signature ✦' },
+  { ensembleSize: 3, richness: 1, label: 'ease back (standard model)' },
   { ensembleSize: 1, richness: 0, label: 'solo piano' },
   { ensembleSize: 0, richness: 0, label: 'silence' },
 ];
