@@ -62,6 +62,14 @@ export interface Tier {
    * by context occupancy: the deeper into the session, the richer the texture.
    */
   richness: number;
+
+  /**
+   * Model-tier timbre signature (CC-8): `0` for standard models, `1` when a
+   * high-end model (Opus) is active. Gates a distinct voicing layer keyed to the
+   * model, **independent of token count**. Optional — an absent value is treated
+   * as `0`.
+   */
+  timbre?: number;
 }
 
 /** Options for {@link extractUsage} / {@link extractUsageFromString}. */

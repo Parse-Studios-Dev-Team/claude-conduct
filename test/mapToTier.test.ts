@@ -16,11 +16,11 @@ test('600 tokens → a light ensemble; Opus sounds fuller than Haiku', () => {
   const light = { tokens: 600, contextPct: 5 };
   assert.deepEqual(
     mapToTier(usage({ ...light, model: 'claude-haiku-4-5-20251001' })),
-    { ensembleSize: 1, richness: 0 },
+    { ensembleSize: 1, richness: 0, timbre: 0 },
   );
   assert.deepEqual(
     mapToTier(usage({ ...light, model: 'claude-opus-4-8' })),
-    { ensembleSize: 2, richness: 0 }, // +1 model bump
+    { ensembleSize: 2, richness: 0, timbre: 1 }, // +1 model bump, high-end signature
   );
 });
 
@@ -28,11 +28,11 @@ test('3000 tokens → a larger ensemble; Opus still one above Haiku', () => {
   const heavy = { tokens: 3000, contextPct: 20 };
   assert.deepEqual(
     mapToTier(usage({ ...heavy, model: 'claude-haiku-4-5-20251001' })),
-    { ensembleSize: 3, richness: 0 },
+    { ensembleSize: 3, richness: 0, timbre: 0 },
   );
   assert.deepEqual(
     mapToTier(usage({ ...heavy, model: 'claude-opus-4-8' })),
-    { ensembleSize: 4, richness: 0 },
+    { ensembleSize: 4, richness: 0, timbre: 1 },
   );
 });
 
@@ -41,12 +41,12 @@ test('near the context limit → full ensemble + max richness, even after a tiny
   const nearLimit = { tokens: 300, contextPct: 97 };
   assert.deepEqual(
     mapToTier(usage({ ...nearLimit, model: 'claude-opus-4-8' })),
-    { ensembleSize: 5, richness: 2 }, // context level 5 dominates the tiny token level
+    { ensembleSize: 5, richness: 2, timbre: 1 }, // context level 5 dominates the tiny token level
   );
-  // At the ceiling the model bump is clamped away, so Haiku lands at the same tier.
+  // At the ceiling the model bump is clamped away, but Haiku still lacks the signature.
   assert.deepEqual(
     mapToTier(usage({ ...nearLimit, model: 'claude-haiku-4-5-20251001' })),
-    { ensembleSize: 5, richness: 2 },
+    { ensembleSize: 5, richness: 2, timbre: 0 },
   );
 });
 
@@ -60,7 +60,30 @@ test('Opus vs Haiku differ at identical usage (when not clamped)', () => {
 // --- Bounds & clamping ------------------------------------------------------
 
 test('a fresh session (all zero, null model) → the silent tier', () => {
-  assert.deepEqual(mapToTier(usage()), { ensembleSize: 0, richness: 0 });
+  assert.deepEqual(mapToTier(usage()), { ensembleSize: 0, richness: 0, timbre: 0 });
+});
+
+test('timbre signature (CC-8): high-end models get timbre 1, others 0', () => {
+  const same = { tokens: 700, contextPct: 10 };
+  assert.equal(mapToTier(usage({ ...same, model: 'claude-opus-4-8' })).timbre, 1);
+  assert.equal(mapToTier(usage({ ...same, model: 'claude-sonnet-5' })).timbre, 0);
+  assert.equal(mapToTier(usage({ ...same, model: 'claude-haiku-4-5-20251001' })).timbre, 0);
+  assert.equal(mapToTier(usage({ ...same, model: null })).timbre, 0);
+});
+
+test('timbre is independent of token count and configurable via highEndModels', () => {
+  // Tiny turn, standard model bumped to high-end via config.
+  const t = mapToTier(usage({ tokens: 10, contextPct: 1, model: 'claude-sonnet-5' }), {
+    highEndModels: ['claude-sonnet'],
+  });
+  assert.equal(t.timbre, 1);
+  // And opus is no longer high-end under this override.
+  assert.equal(
+    mapToTier(usage({ tokens: 10, contextPct: 1, model: 'claude-opus-4-8' }), {
+      highEndModels: ['claude-sonnet'],
+    }).timbre,
+    0,
+  );
 });
 
 test('ensembleSize is clamped to maxEnsemble even with model bump', () => {

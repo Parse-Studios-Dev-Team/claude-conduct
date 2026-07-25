@@ -63,7 +63,7 @@ test('mute persists until unmute, which restores volume and resumes the tier', (
     assert.equal(cfg.mute, false);
     const cmd = commandOf(baseDir);
     assert.equal(cmd?.volume, cfg.volume); // restored
-    assert.deepEqual(cmd?.tier, { ensembleSize: 5, richness: 2 }); // resumed
+    assert.deepEqual(cmd?.tier, { ensembleSize: 5, richness: 2, timbre: 1 }); // resumed (Opus)
   });
 });
 
