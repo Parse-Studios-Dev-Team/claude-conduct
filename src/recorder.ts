@@ -1,57 +1,34 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Tier } from './types';
+import {
+  encodeTurn,
+  packTier,
+  parseRecording,
+  summarize,
+  type Recording,
+  type RecordedTurn,
+} from './recordingFormat';
 
 /**
- * Per-session timeline recording (CC-9). Every usage-bearing hook appends one
- * line describing that turn; `SessionEnd` appends a summary. The playground
- * replays these files.
+ * Per-session timeline recording (CC-9) — the filesystem side. The line shape
+ * and the pure functions over it live in `recordingFormat.ts`, which the browser
+ * playground shares; this module only does I/O.
  *
  * Everything here is **best-effort and never throws** — a recording failure must
- * not disturb a Claude Code turn, and a corrupt line must not make a whole
- * session unreadable.
- *
- * Field names are deliberately terse (`t`/`tok`/`ctx`, `e`/`r`/`s`). A long
- * session is thousands of lines and this file is machine-read, not browsed.
+ * not disturb a Claude Code turn.
  */
 
-/** Bumped when the on-disk line shape changes. Readers skip foreign versions. */
-export const RECORDING_VERSION = 1;
-
-/** One turn of a session. */
-export interface RecordedTurn {
-  /** Epoch ms when the turn was recorded. */
-  t: number;
-  /** `Usage.tokens` — work billed this turn (input + output + cache creation). */
-  tok: number;
-  /** `Usage.contextPct`, rounded to one decimal. */
-  ctx: number;
-  /** Model id, or `null` when the transcript didn't carry one. */
-  model: string | null;
-  /** The mapped tier: ensemble, richness, signature. */
-  tier: { e: number; r: number; s: number };
-}
-
-/** Terminal line, appended once at `SessionEnd`. */
-export interface RecordedSummary {
-  type: 'summary';
-  version: number;
-  turns: number;
-  /** Epoch ms of the first and last recorded turn. */
-  startedAt: number | null;
-  endedAt: number | null;
-  durationMs: number;
-  /** Highest tier reached across the session. */
-  peakTier: { e: number; r: number; s: number };
-  /** Every distinct model seen, in first-appearance order. */
-  models: string[];
-}
-
-/** A parsed recording: the turns, plus the summary when the session ended. */
-export interface Recording {
-  turns: RecordedTurn[];
-  summary: RecordedSummary | null;
-}
+export {
+  RECORDING_VERSION,
+  parseRecording,
+  summarize,
+  packTier,
+  unpackTier,
+  type RecordedTurn,
+  type RecordedSummary,
+  type Recording,
+} from './recordingFormat';
 
 const FILE_SUFFIX = '.jsonl';
 
@@ -61,12 +38,6 @@ export function recordingPath(recordingsDir: string, sessionId: string): string 
   return join(recordingsDir, `${safe}${FILE_SUFFIX}`);
 }
 
-const tierOf = (tier: Tier): { e: number; r: number; s: number } => ({
-  e: tier.ensembleSize,
-  r: tier.richness,
-  s: tier.timbre ?? 0,
-});
-
 /**
  * Append one turn. Creates the directory on first write.
  *
@@ -74,21 +45,10 @@ const tierOf = (tier: Tier): { e: number; r: number; s: number } => ({
  * recording describes what the session *sounded like in principle*, so muting
  * playback must not flatten the file into silence.
  */
-export function appendTurn(
-  recordingsDir: string,
-  sessionId: string,
-  turn: Omit<RecordedTurn, 't'> & { t?: number },
-): void {
+export function appendTurn(recordingsDir: string, sessionId: string, turn: RecordedTurn): void {
   try {
     mkdirSync(recordingsDir, { recursive: true });
-    const line: RecordedTurn = {
-      t: turn.t ?? Date.now(),
-      tok: turn.tok,
-      ctx: Math.round(turn.ctx * 10) / 10,
-      model: turn.model,
-      tier: turn.tier,
-    };
-    appendFileSync(recordingPath(recordingsDir, sessionId), `${JSON.stringify(line)}\n`, 'utf8');
+    appendFileSync(recordingPath(recordingsDir, sessionId), `${encodeTurn(turn)}\n`, 'utf8');
   } catch {
     /* recording is never worth failing a turn over */
   }
@@ -107,77 +67,17 @@ export function recordTurn(
     tok: usage.tokens,
     ctx: usage.contextPct,
     model: usage.model,
-    tier: tierOf(tier),
+    tier: packTier(tier),
   });
 }
 
-/**
- * Read a recording back. Unparseable lines are skipped rather than throwing, so
- * a partial write (or a crash mid-append) costs one turn, not the file.
- */
+/** Read a recording back from disk. A missing file is an empty recording, not an error. */
 export function readRecording(path: string): Recording {
-  let raw: string;
   try {
-    raw = readFileSync(path, 'utf8');
+    return parseRecording(readFileSync(path, 'utf8'));
   } catch {
     return { turns: [], summary: null };
   }
-
-  const turns: RecordedTurn[] = [];
-  let summary: RecordedSummary | null = null;
-
-  for (const line of raw.split(/\r?\n/)) {
-    const text = line.trim();
-    if (!text) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      continue;
-    }
-    if (typeof parsed !== 'object' || parsed === null) continue;
-
-    const record = parsed as Partial<RecordedSummary> & Partial<RecordedTurn>;
-    if (record.type === 'summary') {
-      summary = record as RecordedSummary;
-      continue;
-    }
-    if (typeof record.t === 'number' && record.tier && typeof record.tok === 'number') {
-      turns.push(record as RecordedTurn);
-    }
-  }
-
-  return { turns, summary };
-}
-
-/** Compute the summary for a set of turns. Pure. */
-export function summarize(turns: RecordedTurn[]): RecordedSummary {
-  const models: string[] = [];
-  let peak = { e: 0, r: 0, s: 0 };
-
-  for (const turn of turns) {
-    if (turn.model && !models.includes(turn.model)) models.push(turn.model);
-    // Peak is per-axis: the loudest the session ever got on each dimension.
-    peak = {
-      e: Math.max(peak.e, turn.tier.e),
-      r: Math.max(peak.r, turn.tier.r),
-      s: Math.max(peak.s, turn.tier.s),
-    };
-  }
-
-  const startedAt = turns.length > 0 ? turns[0]!.t : null;
-  const endedAt = turns.length > 0 ? turns[turns.length - 1]!.t : null;
-
-  return {
-    type: 'summary',
-    version: RECORDING_VERSION,
-    turns: turns.length,
-    startedAt,
-    endedAt,
-    durationMs: startedAt !== null && endedAt !== null ? endedAt - startedAt : 0,
-    peakTier: peak,
-    models,
-  };
 }
 
 /**
@@ -225,7 +125,9 @@ export function pruneRecordings(recordingsDir: string, keep: number): void {
 }
 
 /** List recordings newest-first — what the playground offers to load. */
-export function listRecordings(recordingsDir: string): Array<{ sessionId: string; path: string; mtime: number }> {
+export function listRecordings(
+  recordingsDir: string,
+): Array<{ sessionId: string; path: string; mtime: number }> {
   try {
     return readdirSync(recordingsDir)
       .filter((name) => name.endsWith(FILE_SUFFIX))

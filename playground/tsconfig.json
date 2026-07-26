@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "noEmit": true,
+    "rootDir": ".."
+  },
+  "//": "Only the playground is listed; TS follows imports into src/ on its own, which keeps this checked against the browser-safe subset (synth, mixer, mapToTier, tierGains, types) and never drags in the node-only modules.",
+  "include": ["."]
+}

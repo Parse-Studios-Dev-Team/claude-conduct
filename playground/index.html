@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conduct — Playground</title>
+<style>
+  :root {
+    --ground: #EDEFF2;
+    --surface: #FFFFFF;
+    --surface-sunk: #E3E7EC;
+    --line: #CBD2DA;
+    --line-soft: #DEE4EA;
+    --text: #171C24;
+    --text-dim: #59636F;
+    --text-faint: #8A939E;
+    --brass: #A8791B;
+    --brass-wash: rgba(200, 155, 60, 0.13);
+    --good: #2F7D5F;
+    --warn: #B4661C;
+    --crit: #A63D45;
+    --display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    --data: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --rule: 1px solid var(--line);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0E1218; --surface: #161C25; --surface-sunk: #0A0E13;
+      --line: #2A3441; --line-soft: #212A35;
+      --text: #E4E8ED; --text-dim: #97A2AF; --text-faint: #6B7684;
+      --brass: #D9AE55; --brass-wash: rgba(217, 174, 85, 0.15);
+      --good: #4FA37E; --warn: #D08C42; --crit: #CC6169;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--text);
+    font-family: var(--body); font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1080px; margin: 0 auto;
+    padding: clamp(1.5rem, 1rem + 3vw, 3.5rem) clamp(1rem, 0.5rem + 3vw, 2.5rem) 5rem;
+    display: flex; flex-direction: column; gap: clamp(2rem, 1.5rem + 2vw, 3rem);
+  }
+  header { display: flex; flex-direction: column; gap: 0.75rem; padding-bottom: 1.5rem; border-bottom: 2px solid var(--text); }
+  .eyebrow { font-family: var(--data); font-size: 0.7rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--brass); }
+  h1 { font-family: var(--display); font-size: clamp(1.9rem, 1.4rem + 2.5vw, 3rem); line-height: 1.05; font-weight: 600; margin: 0; letter-spacing: -0.015em; }
+  .standfirst { font-family: var(--display); font-size: 1.08rem; color: var(--text-dim); max-width: 62ch; margin: 0; }
+  h2 { font-family: var(--display); font-size: 1.5rem; font-weight: 600; margin: 0 0 0.75rem; letter-spacing: -0.01em; }
+  h3 { font-family: var(--body); font-size: 0.75rem; font-weight: 650; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-dim); margin: 0; }
+  p { max-width: 68ch; }
+  code { font-family: var(--data); font-size: 0.88em; background: var(--surface-sunk); padding: 0.1em 0.35em; border-radius: 3px; }
+
+  .panel { background: var(--surface); border: var(--rule); border-radius: 4px; }
+
+  /* loader */
+  .loader { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0; }
+  .loader > div { padding: 1.15rem 1.4rem; border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 0.6rem; }
+  .loader > div:last-child { border-right: 0; }
+  #drop { border: 1px dashed var(--line); border-radius: 4px; padding: 1rem; text-align: center; color: var(--text-faint); font-size: 0.85rem; cursor: default; }
+  #drop.is-over { border-color: var(--brass); color: var(--brass); background: var(--brass-wash); }
+  .load-note { font-size: 0.82rem; color: var(--text-dim); font-family: var(--data); }
+
+  /* transport */
+  .transport { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; padding: 1rem 1.4rem; border-bottom: var(--rule); }
+  .now { display: flex; flex-direction: column; gap: 0.1rem; min-width: 12rem; }
+  .now-tier { font-family: var(--data); font-size: 1.4rem; font-weight: 600; color: var(--brass); font-variant-numeric: tabular-nums; }
+  .now-usage, .now-turn { font-family: var(--data); font-size: 0.76rem; color: var(--text-faint); }
+  #scrub { flex: 1 1 14rem; min-width: 10rem; }
+
+  button {
+    font-family: var(--body); font-size: 0.85rem; font-weight: 550;
+    color: var(--text-dim); background: var(--surface-sunk);
+    border: 1px solid var(--line); border-radius: 3px; padding: 0.45rem 1rem; cursor: pointer;
+  }
+  button:hover:not(:disabled) { color: var(--text); border-color: var(--brass); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+  .chart-area { padding: 1.25rem 1.4rem; }
+  canvas { display: block; width: 100%; height: auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1.25rem; font-size: 0.76rem; color: var(--text-dim); margin-top: 0.75rem; }
+  .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .swatch { width: 0.8rem; height: 0.55rem; border-radius: 2px; }
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); border-top: var(--rule); }
+  .metric { padding: 1rem 1.4rem; border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 0.15rem; }
+  .metric:last-child { border-right: 0; }
+  .metric-value { font-family: var(--data); font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .metric-label { font-size: 0.7rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-faint); }
+  .metric-note { font-size: 0.78rem; color: var(--text-dim); }
+  .verdict.is-good { color: var(--good); }
+  .verdict.is-warn { color: var(--warn); }
+  .verdict.is-crit { color: var(--crit); }
+
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); border-top: var(--rule); }
+  .group { padding: 1.25rem 1.4rem; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 0.8rem; min-width: 0; }
+  .group-desc { font-size: 0.82rem; color: var(--text-dim); }
+  .slider-row { display: grid; grid-template-columns: 4.2rem minmax(0, 1fr) 4.2rem; align-items: center; gap: 0.7rem; }
+  .slider-tag { font-family: var(--data); font-size: 0.74rem; color: var(--text-faint); }
+  .slider-val { font-family: var(--data); font-size: 0.8rem; text-align: right; font-variant-numeric: tabular-nums; }
+  input[type="range"] { width: 100%; accent-color: var(--brass); min-width: 0; }
+  select { font-family: var(--body); font-size: 0.85rem; color: var(--text); background: var(--surface-sunk); border: 1px solid var(--line); border-radius: 3px; padding: 0.35rem 0.5rem; width: 100%; }
+  input[type="file"] { font-size: 0.8rem; color: var(--text-dim); }
+
+  #melody-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr)); gap: 0.5rem; }
+  .note-slot { display: flex; flex-direction: column; gap: 0.2rem; }
+
+  pre { font-family: var(--data); font-size: 0.8rem; line-height: 1.5; background: var(--surface-sunk); border: var(--rule); border-radius: 4px; padding: 1rem 1.15rem; overflow-x: auto; }
+  .output-head { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; }
+  .caption { font-size: 0.82rem; color: var(--text-faint); max-width: 68ch; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Claude Conduct · playground</div>
+    <h1>Replay a session and tune it by ear</h1>
+    <p class="standfirst">
+      Load a recorded session, hear it played back through the same engine the daemon uses,
+      and move the thresholds while it plays. The mapping is imported from
+      <code>src/mapToTier.ts</code>, so what you hear here is what you get live.
+    </p>
+  </header>
+
+  <section>
+    <h2>Load a session</h2>
+    <div class="panel loader">
+      <div>
+        <h3>From this machine</h3>
+        <select id="recording-picker" disabled><option>Loading…</option></select>
+        <div class="load-note" id="load-note">No session loaded.</div>
+      </div>
+      <div>
+        <h3>Or open a file</h3>
+        <input type="file" id="file-input" accept=".jsonl">
+        <div id="drop">…or drop a <code>.jsonl</code> recording here</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Playback</h2>
+    <div class="panel">
+      <div class="transport">
+        <button id="play" disabled>Play</button>
+        <div class="now">
+          <span class="now-tier" id="now-tier">—</span>
+          <span class="now-usage" id="now-usage">load a session to begin</span>
+          <span class="now-turn" id="now-turn"></span>
+        </div>
+        <input type="range" id="scrub" min="0" max="0" value="0" disabled aria-label="Scrub through the session">
+      </div>
+
+      <div class="chart-area">
+        <canvas id="tape" role="img" aria-label="Ensemble size across the loaded session"></canvas>
+        <div class="legend">
+          <span><i class="swatch" style="background: var(--brass)"></i>ensemble size (0–5)</span>
+          <span><i class="swatch" style="background: var(--brass-wash); border: 1px solid var(--brass)"></i>richness / pad</span>
+          <span><i class="swatch" style="background: var(--good)"></i>context&nbsp;%</span>
+          <span><i class="swatch" style="background: var(--text)"></i>playhead</span>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-value" id="m-move">—</div>
+          <div class="metric-label">Turns that change</div>
+          <div class="metric-note" id="m-move-note">&nbsp;</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="m-levels">—</div>
+          <div class="metric-label">Levels used</div>
+          <div class="metric-note">of 6 possible</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="m-ceil">—</div>
+          <div class="metric-label">Time at ceiling</div>
+          <div class="metric-note" id="m-ceil-note">&nbsp;</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value verdict" id="m-verdict">—</div>
+          <div class="metric-label">Verdict</div>
+          <div class="metric-note" id="m-verdict-note">&nbsp;</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="group">
+          <div><h3>Token thresholds</h3><div class="group-desc">Work done in a single turn — the axis that gives turn-to-turn movement.</div></div>
+          <div id="token-sliders"></div>
+        </div>
+        <div class="group">
+          <div><h3>Context thresholds</h3><div class="group-desc">Percent of a 1M-token window. Only ever climbs, so it acts as a ratcheting floor.</div></div>
+          <div id="context-sliders"></div>
+        </div>
+        <div class="group">
+          <div><h3>Richness thresholds</h3><div class="group-desc">Where the pad fades in, then reaches full.</div></div>
+          <div id="richness-sliders"></div>
+        </div>
+        <div class="group">
+          <div><h3>Layer levels</h3><div class="group-desc">Peak amplitude per voice. Re-synthesizes on release.</div></div>
+          <div id="voice-controls"></div>
+        </div>
+        <div class="group">
+          <div><h3>Bell melody</h3><div class="group-desc">The signature's eight strikes, in D major. Any triad tone lands consonant.</div></div>
+          <div id="melody-controls"></div>
+        </div>
+        <div class="group">
+          <div><h3>Transport &amp; mix</h3><div class="group-desc">Playback speed, master volume, crossfade, and a fresh stereo arrangement.</div></div>
+          <div class="slider-row">
+            <label class="slider-tag" for="speed">speed</label>
+            <input type="range" id="speed" min="120" max="2500" step="20" value="700">
+            <output class="slider-val" id="speed-val">700ms / turn</output>
+          </div>
+          <div class="slider-row">
+            <label class="slider-tag" for="volume">volume</label>
+            <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8">
+            <output class="slider-val" id="volume-val">0.80</output>
+          </div>
+          <div class="slider-row">
+            <label class="slider-tag" for="crossfade">crossfade</label>
+            <input type="range" id="crossfade" min="100" max="4000" step="50" value="1500">
+            <output class="slider-val" id="crossfade-val">1500ms</output>
+          </div>
+          <div class="slider-row">
+            <label class="slider-tag" for="reseed">stereo</label>
+            <button id="reseed" type="button">Reseed pan</button>
+            <output class="slider-val" id="seed-val">—</output>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Export</h2>
+    <div class="output-head">
+      <h3>conduct.config.json</h3>
+      <button id="copy-config" type="button">Copy</button>
+    </div>
+    <pre id="config-out">—</pre>
+    <p class="caption">
+      Paste into <code>conduct.config.json</code> — the hook reads it fresh every turn, no rebuild.
+      Threshold arrays replace the defaults wholesale rather than merging element-wise.
+    </p>
+  </section>
+
+</div>
+<script type="module" src="./bundle.js"></script>
+</body>
+</html>
