@@ -47,7 +47,10 @@ export interface HandleResult {
 /**
  * Route one hook event through the pipeline:
  *
- * - `SessionStart` → start the daemon.
+ * - `SessionStart` → nothing. Playback is opt-in per session: the daemon only
+ *   starts when you ask for it with `/conduct start` (or `unmute`). Tier updates
+ *   still accumulate in the command file while it's down, so starting mid-session
+ *   picks up at the right layer instead of from silence.
  * - `SessionEnd`   → stop the daemon and drop this session's state.
  * - `PostToolUse` / `Stop` (anything with a transcript) →
  *   `extractUsage → mapToTier → recordTier` (dedupe) → `sendTier` on change.
@@ -65,8 +68,8 @@ export function handleEvent(
 ): HandleResult {
   switch (input.hook_event_name) {
     case 'SessionStart':
-      deps.startDaemon(paths, config);
-      return { action: 'start', emitted: null };
+      // Deliberately does not start the daemon — see the note above.
+      return { action: 'noop', emitted: null };
 
     case 'SessionEnd':
       deps.stopDaemon(paths);

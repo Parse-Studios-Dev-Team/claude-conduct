@@ -129,8 +129,13 @@ export function resample(samples: Float32Array, fromRate: number, toRate: number
   return out;
 }
 
-/** Encode mono float samples as a 16-bit PCM WAV buffer. */
-export function encodeWav(samples: Float32Array, sampleRate: number): Buffer {
+/**
+ * Encode float samples as a 16-bit PCM WAV buffer. Pass `channels: 2` with
+ * interleaved `[L, R, …]` input to write a stereo file.
+ */
+export function encodeWav(samples: Float32Array, sampleRate: number, channels = 1): Buffer {
+  const ch = Math.max(1, Math.round(channels));
+  const bytesPerFrame = 2 * ch;
   const dataLen = samples.length * 2;
   const buf = Buffer.alloc(44 + dataLen);
 
@@ -140,10 +145,10 @@ export function encodeWav(samples: Float32Array, sampleRate: number): Buffer {
   buf.write('fmt ', 12, 'ascii');
   buf.writeUInt32LE(16, 16); // fmt chunk size
   buf.writeUInt16LE(FORMAT_PCM, 20);
-  buf.writeUInt16LE(1, 22); // mono
+  buf.writeUInt16LE(ch, 22);
   buf.writeUInt32LE(sampleRate, 24);
-  buf.writeUInt32LE(sampleRate * 2, 28); // byte rate (mono, 2 bytes/sample)
-  buf.writeUInt16LE(2, 32); // block align
+  buf.writeUInt32LE(sampleRate * bytesPerFrame, 28); // byte rate
+  buf.writeUInt16LE(bytesPerFrame, 32); // block align
   buf.writeUInt16LE(16, 34); // bits per sample
   buf.write('data', 36, 'ascii');
   buf.writeUInt32LE(dataLen, 40);

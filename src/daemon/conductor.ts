@@ -6,7 +6,7 @@ import type { Tier } from '../types';
 export interface ConductorOptions extends MixerOptions {
   /** Stem layout used to translate a tier into gains. Default {@link DEFAULT_LAYOUT}. */
   layout?: StemLayout;
-  /** Samples rendered per block. Default 1024. */
+  /** Frames rendered per block (each frame is one stereo pair). Default 1024. */
   blockFrames?: number;
 }
 
