@@ -24,10 +24,14 @@ import {
   finalizeRecording,
   pruneRecordings,
   readRecording,
-  summarize,
   listRecordings,
   recordingPath,
+  parseRecording,
+  summarize,
+  packTier,
+  unpackTier,
 } from '../src/recorder';
+import { encodeTurn } from '../src/recordingFormat';
 import { parseCommand } from '../src/daemon/command';
 import type { Usage, Tier } from '../src/types';
 
@@ -429,4 +433,35 @@ test('summarize is pure and handles an empty session', () => {
   assert.equal(empty.durationMs, 0);
   assert.deepEqual(empty.peakTier, { e: 0, r: 0, s: 0 });
   assert.deepEqual(empty.models, []);
+});
+
+test('the recording format round-trips through the shared parser the playground uses', () => {
+  // The playground imports parseRecording/summarize from src/recordingFormat.ts
+  // rather than re-declaring them. This asserts the writer and that shared
+  // reader agree, which is the contract that keeps the two from drifting.
+  const turns = [
+    { t: 10, tok: 500, ctx: 4.6, model: 'claude-opus-5', tier: { e: 2, r: 0, s: 1 } },
+    { t: 20, tok: 9000, ctx: 31.4, model: 'claude-sonnet-5', tier: { e: 5, r: 2, s: 0 } },
+  ];
+  const text = turns.map(encodeTurn).join('\n') + '\n';
+
+  const parsed = parseRecording(text);
+  assert.deepEqual(parsed.turns, turns);
+  assert.equal(parsed.summary, null, 'no summary until the session ends');
+
+  const derived = summarize(parsed.turns);
+  assert.deepEqual(derived.peakTier, { e: 5, r: 2, s: 1 });
+  assert.deepEqual(derived.models, ['claude-opus-5', 'claude-sonnet-5']);
+  assert.equal(derived.durationMs, 10);
+
+  // And a finalized file parses the summary back out rather than deriving it.
+  const finalized = parseRecording(text + JSON.stringify(derived) + '\n');
+  assert.deepEqual(finalized.summary, derived);
+  assert.equal(finalized.turns.length, 2);
+});
+
+test('packTier / unpackTier round-trip, including an absent timbre', () => {
+  assert.deepEqual(packTier({ ensembleSize: 3, richness: 1, timbre: 1 }), { e: 3, r: 1, s: 1 });
+  assert.deepEqual(packTier({ ensembleSize: 3, richness: 1 }), { e: 3, r: 1, s: 0 });
+  assert.deepEqual(unpackTier({ e: 4, r: 2, s: 1 }), { ensembleSize: 4, richness: 2, timbre: 1 });
 });
