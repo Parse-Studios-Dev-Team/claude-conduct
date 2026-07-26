@@ -3,6 +3,7 @@ import { mapToTier } from '../mapToTier';
 import { recordTier, clearSession } from '../state';
 import { sendTier } from '../daemon/client';
 import { startDaemon, stopDaemon } from './daemonControl';
+import { recordTurn, finalizeRecording, pruneRecordings } from '../recorder';
 import type { Tier } from '../types';
 import type { ConductConfig } from './config';
 import type { ConductPaths } from './paths';
@@ -27,6 +28,9 @@ export interface HandlerDeps {
   sendTier: typeof sendTier;
   startDaemon: typeof startDaemon;
   stopDaemon: typeof stopDaemon;
+  recordTurn: typeof recordTurn;
+  finalizeRecording: typeof finalizeRecording;
+  pruneRecordings: typeof pruneRecordings;
 }
 
 export const realDeps: HandlerDeps = {
@@ -36,6 +40,9 @@ export const realDeps: HandlerDeps = {
   sendTier,
   startDaemon,
   stopDaemon,
+  recordTurn,
+  finalizeRecording,
+  pruneRecordings,
 };
 
 export interface HandleResult {
@@ -73,7 +80,13 @@ export function handleEvent(
 
     case 'SessionEnd':
       deps.stopDaemon(paths);
-      if (input.session_id) deps.clearSession(paths.statePath, input.session_id);
+      if (input.session_id) {
+        deps.clearSession(paths.statePath, input.session_id);
+        if (config.recordings.enabled) {
+          deps.finalizeRecording(paths.recordingsDir, input.session_id);
+          deps.pruneRecordings(paths.recordingsDir, config.recordings.keep);
+        }
+      }
       return { action: 'stop', emitted: null };
 
     default: {
@@ -84,7 +97,18 @@ export function handleEvent(
       const usage = deps.extractUsage(input.transcript_path, {
         contextWindows: config.contextWindows,
       });
-      const tier = config.mute ? SILENT_TIER : mapToTier(usage, config.tier);
+      const mapped = mapToTier(usage, config.tier);
+      const tier = config.mute ? SILENT_TIER : mapped;
+
+      // Record the *mapped* tier, not the muted one: a recording describes what
+      // the session would sound like, so muting playback must not flatten the
+      // timeline into silence. Recording is also independent of the dedupe —
+      // every turn gets a line, because the playground re-scores from the raw
+      // axes and needs them all, not just the turns that changed tier.
+      if (config.recordings.enabled) {
+        deps.recordTurn(paths.recordingsDir, input.session_id, usage, mapped);
+      }
+
       const { emit } = deps.recordTier(paths.statePath, input.session_id, tier);
       if (emit) deps.sendTier(paths.commandPath, tier);
       return { action: 'update', emitted: emit ? tier : null };

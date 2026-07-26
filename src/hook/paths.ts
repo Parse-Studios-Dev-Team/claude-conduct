@@ -14,6 +14,8 @@ export interface ConductPaths {
   pidPath: string;
   /** Daemon stdout/stderr log. */
   logPath: string;
+  /** CC-9 per-session timeline recordings, one `<session_id>.jsonl` per session. */
+  recordingsDir: string;
 }
 
 /**
@@ -49,5 +51,6 @@ export function resolvePaths(baseDir: string): ConductPaths {
     commandPath: join(runtimeDir, 'conduct-command.json'),
     pidPath: join(runtimeDir, 'conduct.pid'),
     logPath: join(runtimeDir, 'conduct-daemon.log'),
+    recordingsDir: join(runtimeDir, 'recordings'),
   };
 }

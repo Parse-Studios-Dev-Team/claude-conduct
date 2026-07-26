@@ -23,6 +23,16 @@ export interface ConductConfig {
   contextWindows: Record<string, number>;
   /** Directory of real WAV stems to play; relative paths resolve from the project dir. Unset ⇒ synth placeholders. */
   stemsDir?: string;
+  /** CC-9 session recording: whether to log a timeline, and how many to keep. */
+  recordings: RecordingsConfig;
+}
+
+/** Tuning for the CC-9 session recorder. */
+export interface RecordingsConfig {
+  /** Write a per-session timeline. Recording is independent of playback. */
+  enabled: boolean;
+  /** Keep this many recordings per project, newest first. `0` disables pruning. */
+  keep: number;
 }
 
 export const DEFAULT_CONFIG: ConductConfig = {
@@ -32,6 +42,7 @@ export const DEFAULT_CONFIG: ConductConfig = {
   crossfadeMs: 1500,
   tier: {},
   contextWindows: {},
+  recordings: { enabled: true, keep: 20 },
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -74,6 +85,14 @@ export function loadConfig(configPath: string): ConductConfig {
   }
   if (typeof parsed.stemsDir === 'string' && parsed.stemsDir.length > 0) {
     config.stemsDir = parsed.stemsDir;
+  }
+  if (isPlainObject(parsed.recordings)) {
+    const recordings = { ...DEFAULT_CONFIG.recordings };
+    if (typeof parsed.recordings.enabled === 'boolean') recordings.enabled = parsed.recordings.enabled;
+    if (typeof parsed.recordings.keep === 'number' && Number.isFinite(parsed.recordings.keep)) {
+      recordings.keep = Math.max(0, Math.floor(parsed.recordings.keep));
+    }
+    config.recordings = recordings;
   }
   return config;
 }
