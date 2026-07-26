@@ -111,6 +111,41 @@ Once hooks are installed, control playback from within Claude Code:
 `mute` and `volume` apply to the running daemon immediately (and persist in
 `conduct.config.json`). Same commands work from a shell: `npm run conduct -- status`.
 
+## Recording & playground (CC-9)
+
+Every session writes a timeline — one line per turn — to
+`<runtime>/recordings/<session_id>.jsonl`, finalized with a summary at
+`SessionEnd`:
+
+```jsonl
+{"t":1785088448966,"tok":1783,"ctx":60.4,"model":"claude-opus-5","tier":{"e":5,"r":2,"s":1}}
+{"type":"summary","version":1,"turns":4,"durationMs":150,"peakTier":{"e":5,"r":2,"s":1}, ...}
+```
+
+Recording is independent of playback — a muted session still records the tier it
+*would* have played, so muting never flattens the timeline. Turn it off or change
+retention under `recordings` in the config.
+
+Then replay and tune it by ear:
+
+```bash
+npm run playground
+```
+
+This bundles a local static app and serves it on `:5273`. Load a session, hear it
+played back through the same voices the daemon uses, and move the thresholds
+*while it plays* — the timeline re-scores instantly, because `mapToTier` is
+imported from `src/`, not reimplemented. Export writes a `conduct.config.json`
+the live engine loads unchanged.
+
+With a user-scope install, recordings live outside the project, so point at them:
+
+```bash
+npm run playground -- --recordings ~/.claude/conduct/<project-slug>/recordings
+```
+
+Flags: `--port <n>`, `--no-open`, `--recordings <dir>`.
+
 ## Development
 
 ```bash
