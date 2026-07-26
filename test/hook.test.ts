@@ -111,11 +111,11 @@ function stubDeps(usage: Usage, emit: boolean): { deps: HandlerDeps; calls: Call
 
 const paths = resolvePaths('/proj');
 
-test('SessionStart starts the daemon', () => {
+test('SessionStart does NOT start the daemon — playback is opt-in per session', () => {
   const { deps, calls } = stubDeps({ tokens: 0, contextPct: 0, model: null }, true);
   const result = handleEvent({ hook_event_name: 'SessionStart' }, DEFAULT_CONFIG, paths, deps);
-  assert.equal(result.action, 'start');
-  assert.equal(calls.startDaemon, 1);
+  assert.equal(result.action, 'noop');
+  assert.equal(calls.startDaemon, 0, 'starting is the job of `/conduct start`');
 });
 
 test('SessionEnd stops the daemon and clears the session', () => {
@@ -203,16 +203,16 @@ test('end-to-end wiring: a real transcript drives a real command + state file, a
 
     const first = handleEvent(input, DEFAULT_CONFIG, p, deps);
     // large.jsonl is Opus → full tier + high-end timbre signature.
-    assert.deepEqual(first.emitted, { ensembleSize: 5, richness: 2, timbre: 1 });
+    assert.deepEqual(first.emitted, { ensembleSize: 5, richness: 1, timbre: 1 });
     assert.ok(existsSync(p.commandPath), 'command file written');
     assert.deepEqual(parseCommand(readFileSync(p.commandPath, 'utf8'))?.tier, {
       ensembleSize: 5,
-      richness: 2,
+      richness: 1,
       timbre: 1,
     });
     assert.deepEqual(readState(p.statePath).sessions['sess']?.tier, {
       ensembleSize: 5,
-      richness: 2,
+      richness: 1,
       timbre: 1,
     });
 

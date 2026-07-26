@@ -57,7 +57,7 @@ test('Conductor.renderBlock writes exactly blockFrames to the sink', () => {
   c.renderBlock();
   c.renderBlock();
   assert.equal(sink.blocks.length, 2);
-  assert.equal(sink.blocks[0]!.length, 64);
+  assert.equal(sink.blocks[0]!.length, 64 * 2); // interleaved stereo
 });
 
 test('Conductor forces the mixer to the sink sample rate', () => {

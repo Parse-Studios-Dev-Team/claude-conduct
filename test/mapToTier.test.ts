@@ -28,11 +28,11 @@ test('3000 tokens → a larger ensemble; Opus still one above Haiku', () => {
   const heavy = { tokens: 3000, contextPct: 20 };
   assert.deepEqual(
     mapToTier(usage({ ...heavy, model: 'claude-haiku-4-5-20251001' })),
-    { ensembleSize: 3, richness: 0, timbre: 0 },
+    { ensembleSize: 3, richness: 1, timbre: 0 }, // 20% of a 1M window brings the pad in
   );
   assert.deepEqual(
     mapToTier(usage({ ...heavy, model: 'claude-opus-4-8' })),
-    { ensembleSize: 4, richness: 0, timbre: 1 },
+    { ensembleSize: 4, richness: 1, timbre: 1 },
   );
 });
 
@@ -102,15 +102,15 @@ test('negative / garbage numbers clamp to the floor, never NaN', () => {
 // --- Threshold boundaries (>= is inclusive) ---------------------------------
 
 test('token threshold boundary is inclusive', () => {
-  assert.equal(mapToTier(usage({ tokens: 499 })).ensembleSize, 0);
-  assert.equal(mapToTier(usage({ tokens: 500 })).ensembleSize, 1);
+  assert.equal(mapToTier(usage({ tokens: 249 })).ensembleSize, 0);
+  assert.equal(mapToTier(usage({ tokens: 250 })).ensembleSize, 1);
 });
 
 test('context threshold boundary is inclusive for both ensemble and richness', () => {
-  assert.equal(mapToTier(usage({ contextPct: 29.99 })).ensembleSize, 0);
-  assert.equal(mapToTier(usage({ contextPct: 30 })).ensembleSize, 1);
-  assert.equal(mapToTier(usage({ contextPct: 49.99 })).richness, 0);
-  assert.equal(mapToTier(usage({ contextPct: 50 })).richness, 1);
+  assert.equal(mapToTier(usage({ contextPct: 4.99 })).ensembleSize, 0);
+  assert.equal(mapToTier(usage({ contextPct: 5 })).ensembleSize, 1);
+  assert.equal(mapToTier(usage({ contextPct: 11.99 })).richness, 0);
+  assert.equal(mapToTier(usage({ contextPct: 12 })).richness, 1);
 });
 
 // --- Configurability (the "not hardcoded" acceptance criterion) -------------
@@ -124,9 +124,9 @@ test('custom tokenThresholds change the outcome', () => {
 });
 
 test('custom richnessThresholds change the outcome', () => {
-  // Default: 60% → richness 1. Require 90% → richness 0.
-  assert.equal(mapToTier(usage({ contextPct: 60 })).richness, 1);
-  assert.equal(mapToTier(usage({ contextPct: 60 }), { richnessThresholds: [90] }).richness, 0);
+  // Default: 20% → richness 1. Require 90% → richness 0.
+  assert.equal(mapToTier(usage({ contextPct: 20 })).richness, 1);
+  assert.equal(mapToTier(usage({ contextPct: 20 }), { richnessThresholds: [90] }).richness, 0);
 });
 
 test('custom modelBump and caps are honored', () => {
@@ -169,5 +169,5 @@ test('mapToTier is pure: same input → same output, and it mutates nothing', ()
   assert.deepEqual(a, b);
   assert.deepEqual(input, inputCopy); // input untouched
   assert.deepEqual(cfg.tokenThresholds, cfgTokens); // config untouched
-  assert.deepEqual(DEFAULT_TIER_CONFIG.tokenThresholds, [500, 1500, 3000, 6000, 12000]); // default untouched
+  assert.deepEqual(DEFAULT_TIER_CONFIG.tokenThresholds, [250, 750, 2000, 4500, 9000]); // default untouched
 });

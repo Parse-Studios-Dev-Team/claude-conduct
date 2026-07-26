@@ -2,12 +2,32 @@ import { readFileSync } from 'node:fs';
 import type { ExtractOptions, Usage } from './types';
 
 /**
- * Default Claude context window (tokens) used when a model-specific size isn't
- * configured via {@link ExtractOptions.contextWindows}. All current Claude
- * models are 200k; per-model overrides exist mainly for the 1M-token beta and
- * for future tuning (see CC-8).
+ * Fallback context window (tokens) for a model we don't recognize. Deliberately
+ * conservative: guessing small overstates `contextPct`, which pushes the music
+ * *up* a tier rather than leaving it silent.
  */
 export const DEFAULT_CONTEXT_WINDOW = 200_000;
+
+/**
+ * Known context-window sizes, matched by model-id prefix (longest wins).
+ *
+ * The original 200k blanket default is wrong for every current frontier model —
+ * they are 1M — which inflated `contextPct` by 5× and pinned the ensemble at its
+ * ceiling for most of a session. Haiku is the one current model still at 200k.
+ *
+ * Config `contextWindows` overrides anything here.
+ */
+export const KNOWN_CONTEXT_WINDOWS: Record<string, number> = {
+  'claude-fable': 1_000_000,
+  'claude-mythos': 1_000_000,
+  'claude-opus-4-6': 1_000_000,
+  'claude-opus-4-7': 1_000_000,
+  'claude-opus-4-8': 1_000_000,
+  'claude-opus-5': 1_000_000,
+  'claude-sonnet-4-6': 1_000_000,
+  'claude-sonnet-5': 1_000_000,
+  'claude-haiku-4-5': 200_000,
+};
 
 const EMPTY: Usage = { tokens: 0, contextPct: 0, model: null };
 
@@ -20,16 +40,35 @@ function clamp(n: number, min: number, max: number): number {
   return n < min ? min : n > max ? max : n;
 }
 
-/** Resolve the context-window size (tokens) for a model, honoring overrides. */
-function resolveContextWindow(model: string | null, options?: ExtractOptions): number {
-  const table = options?.contextWindows;
-  if (model && table) {
-    const exact = table[model];
-    if (typeof exact === 'number') return exact;
-    for (const key of Object.keys(table)) {
-      const value = table[key];
-      if (typeof value === 'number' && model.startsWith(key)) return value;
+/** Longest-prefix (or exact) lookup of `model` in a window table. */
+function lookupWindow(model: string, table: Record<string, number>): number | null {
+  const exact = table[model];
+  if (typeof exact === 'number') return exact;
+
+  let best: number | null = null;
+  let bestLen = -1;
+  for (const key of Object.keys(table)) {
+    const value = table[key];
+    if (typeof value === 'number' && key.length > bestLen && model.startsWith(key)) {
+      best = value;
+      bestLen = key.length;
     }
+  }
+  return best;
+}
+
+/**
+ * Resolve the context-window size (tokens) for a model. Config overrides win,
+ * then {@link KNOWN_CONTEXT_WINDOWS}, then the caller's default, then
+ * {@link DEFAULT_CONTEXT_WINDOW}.
+ */
+function resolveContextWindow(model: string | null, options?: ExtractOptions): number {
+  if (model) {
+    const configured = options?.contextWindows ? lookupWindow(model, options.contextWindows) : null;
+    if (configured !== null) return configured;
+
+    const known = lookupWindow(model, KNOWN_CONTEXT_WINDOWS);
+    if (known !== null) return known;
   }
   return options?.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW;
 }
@@ -103,7 +142,13 @@ export function extractUsageFromString(content: string, options?: ExtractOptions
   const cacheCreation = toCount(usage.cache_creation_input_tokens);
   const cacheRead = toCount(usage.cache_read_input_tokens);
 
-  const tokens = input + output;
+  // Work done *this turn*. `cache_creation_input_tokens` counts freshly-written
+  // context, which is real work and is where nearly all input lands once prompt
+  // caching is warm (`input_tokens` drops to 1–2). Leaving it out made this axis
+  // a measure of reply length alone. `cache_read_input_tokens` is deliberately
+  // excluded: it is the standing context being re-read, which `contextPct`
+  // already tracks.
+  const tokens = input + output + cacheCreation;
   const totalInput = input + cacheCreation + cacheRead;
   const window = resolveContextWindow(model, options);
   const contextPct = window > 0 ? clamp((totalInput / window) * 100, 0, 100) : 0;
