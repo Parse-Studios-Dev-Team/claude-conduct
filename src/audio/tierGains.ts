@@ -1,9 +1,10 @@
 import type { Tier } from '../types';
 
 /**
- * How a {@link Tier} maps onto stems. The default matches CC-4's example set —
- * five progressive "ensemble" layers (piano → strings → woodwinds → brass →
- * percussion) plus one richness/pad layer (choir/pad).
+ * How a {@link Tier} maps onto stems. The default matches the placeholder
+ * voicing in `synth.ts` — five progressive "ensemble" layers that each add a
+ * chord degree (root → fifth → third → major seventh → plucked ninth), plus one
+ * richness/pad layer and one model-signature layer.
  */
 export interface StemLayout {
   /** Progressive base stems driven by `ensembleSize`: the first `ensembleSize` are on. */

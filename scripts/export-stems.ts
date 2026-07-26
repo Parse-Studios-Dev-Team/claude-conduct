@@ -16,7 +16,15 @@ import { encodeWav } from '../src/audio/wav';
 
 const outDir = process.argv[2] ?? 'stems-preview';
 const sampleRate = 44_100;
-const names = ['01-piano', '02-strings', '03-woodwinds', '04-brass', '05-percussion', '06-pad', '07-signature'];
+const names = [
+  '01-root',
+  '02-fifth',
+  '03-third',
+  '04-seventh',
+  '05-ninth-pluck',
+  '06-pad',
+  '07-bell-signature',
+];
 
 mkdirSync(outDir, { recursive: true });
 

@@ -9,12 +9,13 @@ remains is the audio itself — a commission-vs-license decision.
 
 | requirement | value |
 | ----------- | ----- |
-| count & order | **6 mono stems**, cumulative by intensity: `piano → strings → woodwinds → brass → percussion → pad` |
-| roles | stems 1–5 are the **ensemble** layers (added as `ensembleSize` climbs); stem 6 is the **richness/pad** layer (driven by `richness`) |
-| key / tempo / bars | **identical** across all six; each a whole number of bars |
+| count & order | **7 mono stems**, cumulative by intensity: five ensemble layers → pad → model signature |
+| roles | stems 1–5 are the **ensemble** layers (added as `ensembleSize` climbs); stem 6 is the **richness/pad** layer (driven by `richness`); stem 7 is the high-end **model signature** (driven by `timbre`, CC-8) |
+| key / tempo / bars | **identical** across all seven; each a whole number of bars |
 | loop | **seamless** — the end must join the start with no click |
 | any subset | must sound **intentional/consonant** — mix & master them together |
 | format | **WAV** (PCM 8/16/24/32-bit or float32/64). Stereo is downmixed to mono; any sample rate is resampled to the daemon's (44.1 kHz default) |
+| stereo | **don't bake in placement.** Deliver stems dry and centred — the mixer gives each one its own slow auto-pan, seeded per run, so a pre-panned stem fights it |
 
 The tier → layer mapping lives in `src/audio/tierGains.ts`; the default gain for
 the pad at `richness` 0/1/2 is `0 / 0.6 / 1.0`.

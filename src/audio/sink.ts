@@ -8,9 +8,16 @@
  * writes ahead until the sink is full, then waits — which keeps the audio device
  * continuously fed and avoids the underrun pops a fixed-interval feed produces.
  */
+/** Samples per frame in every block moving through the audio path. */
+export const CHANNELS = 2;
+
 export interface Sink {
   readonly sampleRate: number;
-  /** Consume one mono block of `Float32` samples in `[-1, 1]`. Returns `false` when full. */
+  /**
+   * Consume one block of **interleaved stereo** `Float32` samples in `[-1, 1]`
+   * (`[L, R, L, R, …]`, so `block.length` is `frames * 2`). Returns `false` when
+   * full.
+   */
   write(block: Float32Array): boolean;
   /** Resolves when the sink is ready for more data after `write` returned `false`. */
   drain(): Promise<void>;
@@ -27,7 +34,8 @@ export class NullSink implements Sink {
   private pendingMs = 0;
   constructor(readonly sampleRate: number = 44_100) {}
   write(block: Float32Array): boolean {
-    this.pendingMs = (block.length / this.sampleRate) * 1000;
+    // Blocks are interleaved stereo, so frames are half the sample count.
+    this.pendingMs = (block.length / CHANNELS / this.sampleRate) * 1000;
     return false; // always "full" → the pump waits ~one block, keeping it real-time
   }
   drain(): Promise<void> {
@@ -47,7 +55,8 @@ interface SpeakerStream {
 
 /**
  * Create a real audio sink backed by the optional native `speaker` package
- * (16-bit mono PCM to the system device). Not a declared dependency — install
+ * (16-bit interleaved stereo PCM to the system device). Not a declared
+ * dependency — install
  * it (`npm i speaker`) to hear output. Throws a clear error if it's unavailable,
  * so callers can fall back to {@link NullSink}.
  *
@@ -66,8 +75,9 @@ export async function createSpeakerSink(sampleRate = 44_100): Promise<Sink> {
   }
 
   // ~0.4s of write-ahead so timer/GC jitter can't starve the device (that's what clicks).
-  const highWaterMark = Math.max(4096, Math.round(sampleRate * 2 * 0.4));
-  const speaker = new SpeakerCtor({ channels: 1, bitDepth: 16, sampleRate, highWaterMark });
+  const bytesPerFrame = 2 * CHANNELS;
+  const highWaterMark = Math.max(4096, Math.round(sampleRate * bytesPerFrame * 0.4));
+  const speaker = new SpeakerCtor({ channels: CHANNELS, bitDepth: 16, sampleRate, highWaterMark });
 
   let open = true;
   let notifyDrain: (() => void) | null = null;
