@@ -6,6 +6,7 @@ import {
   extractUsage,
   extractUsageFromString,
   DEFAULT_CONTEXT_WINDOW,
+  KNOWN_CONTEXT_WINDOWS,
 } from '../src/extractUsage';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -26,17 +27,40 @@ test('small transcript: a single light turn', () => {
 
 test('medium transcript: reads the LAST assistant turn, skipping the trailing title and a usage-less remnant', () => {
   const u = extractUsage(fixture('medium.jsonl'));
-  assert.equal(u.tokens, 3000); // input 10 + output 2990 — matches the CC-2 "3000 tokens" example
+  assert.equal(u.tokens, 5000); // input 10 + output 2990 + cache_creation 2000
   assert.equal(u.model, 'claude-sonnet-5');
-  assert.ok(Math.abs(u.contextPct - pct(50010)) < EPS); // (10 + 2000 + 48000) / 200k ≈ 25.005%
+  assert.ok(Math.abs(u.contextPct - pct(50010, 1_000_000)) < EPS); // sonnet-5 is a 1M window ≈ 5.001%
 });
 
-test('large transcript: near the context limit', () => {
+test('large transcript: a heavy turn on a 1M-window model', () => {
   const u = extractUsage(fixture('large.jsonl'));
-  assert.equal(u.tokens, 1502); // input 2 + output 1500
+  assert.equal(u.tokens, 6502); // input 2 + output 1500 + cache_creation 5000
   assert.equal(u.model, 'claude-opus-4-8');
-  assert.ok(Math.abs(u.contextPct - pct(195002)) < EPS); // ≈ 97.501%
-  assert.ok(u.contextPct > 95 && u.contextPct <= 100);
+  assert.ok(Math.abs(u.contextPct - pct(195002, 1_000_000)) < EPS); // opus-4-8 is a 1M window ≈ 19.5%
+  assert.ok(u.contextPct > 19 && u.contextPct < 20);
+});
+
+// --- Cached turns -----------------------------------------------------------
+
+test('cache_creation counts as work done this turn; cache_read does not', () => {
+  // A warm-cache turn: input_tokens collapses to ~2 and the real input arrives
+  // as cache_creation. Counting only input+output would read this as 132 tokens.
+  const line = JSON.stringify({
+    type: 'assistant',
+    message: {
+      model: 'claude-opus-5',
+      usage: {
+        input_tokens: 2,
+        output_tokens: 130,
+        cache_creation_input_tokens: 4000,
+        cache_read_input_tokens: 50_000,
+      },
+    },
+  });
+
+  const u = extractUsageFromString(line);
+  assert.equal(u.tokens, 4132); // 2 + 130 + 4000, and *not* the 50k cache read
+  assert.ok(Math.abs(u.contextPct - pct(54_002, 1_000_000)) < EPS); // context still sees all of it
 });
 
 // --- Required edge case: zero assistant turns -------------------------------
@@ -52,7 +76,7 @@ test('malformed / non-JSON lines are skipped, valid turn still found', () => {
   const u = extractUsage(fixture('malformed.jsonl'));
   assert.equal(u.tokens, 300); // input 3 + output 297
   assert.equal(u.model, 'claude-opus-4-8');
-  assert.ok(Math.abs(u.contextPct - pct(1002)) < EPS); // (3 + 0 + 999) / 200k ≈ 0.501%
+  assert.ok(Math.abs(u.contextPct - pct(1002, 1_000_000)) < EPS); // (3 + 0 + 999) / 1M ≈ 0.1002%
 });
 
 test('sub-agent (sidechain) turns are ignored in favor of the main thread', () => {
@@ -80,7 +104,9 @@ test('contextPct clamps to 100 when occupancy exceeds the window', () => {
   const line = JSON.stringify({
     type: 'assistant',
     message: {
-      model: 'claude-opus-4-8',
+      // An unknown model, so `defaultContextWindow` applies — a known model's
+      // real window rightly beats the caller's generic default.
+      model: 'some-tiny-window-model',
       usage: { input_tokens: 5, output_tokens: 595, cache_read_input_tokens: 2000 },
     },
   });
@@ -110,10 +136,43 @@ test('missing usage fields are treated as zero (no NaN); output_tokens do not co
   });
   const u = extractUsageFromString(line);
   assert.equal(u.tokens, 42); // input 42 + missing output (0)
-  assert.ok(Math.abs(u.contextPct - pct(42)) < EPS); // only input contributes to occupancy
+  assert.ok(Math.abs(u.contextPct - pct(42, 1_000_000)) < EPS); // only input contributes to occupancy
   assert.ok(Number.isFinite(u.contextPct));
 });
 
 test('DEFAULT_CONTEXT_WINDOW is exported for downstream (CC-2) reuse', () => {
   assert.equal(DEFAULT_CONTEXT_WINDOW, 200_000);
+});
+
+test('current frontier models resolve to their real 1M window, not the 200k fallback', () => {
+  const heavy = (model: string): number =>
+    extractUsageFromString(
+      JSON.stringify({
+        type: 'assistant',
+        message: { model, usage: { input_tokens: 100_000 } },
+      }),
+    ).contextPct;
+
+  // 100k of a 1M window is 10%; against the old 200k blanket default it read 50%.
+  for (const model of ['claude-opus-5', 'claude-sonnet-5', 'claude-fable-5', 'claude-opus-4-8']) {
+    assert.ok(Math.abs(heavy(model) - 10) < EPS, `${model} should be a 1M window`);
+  }
+
+  // Haiku really is 200k.
+  assert.ok(Math.abs(heavy('claude-haiku-4-5-20251001') - 50) < EPS);
+
+  // An unknown model falls back conservatively.
+  assert.ok(Math.abs(heavy('some-future-model') - 50) < EPS);
+});
+
+test('config contextWindows still overrides the built-in table', () => {
+  const u = extractUsageFromString(
+    JSON.stringify({
+      type: 'assistant',
+      message: { model: 'claude-opus-5', usage: { input_tokens: 100_000 } },
+    }),
+    { contextWindows: { 'claude-opus-5': 200_000 } },
+  );
+  assert.ok(Math.abs(u.contextPct - 50) < EPS);
+  assert.equal(KNOWN_CONTEXT_WINDOWS['claude-opus-5'], 1_000_000); // table untouched
 });

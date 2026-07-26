@@ -51,20 +51,29 @@ export interface TierConfig {
 }
 
 /**
- * Default mapping. Tuned so the CC-2 example inputs land on distinct, sensible
- * tiers (see `test/mapToTier.test.ts`):
- * - 600 tokens  → ensembleSize 1 (Haiku) / 2 (Opus)
- * - 3000 tokens → ensembleSize 3 (Haiku) / 4 (Opus)
+ * Default mapping. Retuned for sensitivity: measured against real sessions the
+ * old thresholds left the music parked on one or two levels for an entire
+ * conversation, because a typical cached turn does 300–6000 tokens of work and
+ * a session spends most of its life below 50% context.
+ *
+ * - 300 tokens  → ensembleSize 1 (Haiku) / 2 (Opus)
+ * - 2000 tokens → ensembleSize 3 (Haiku) / 4 (Opus)
  * - near limit  → ensembleSize 5, richness 2
+ *
+ * The context percentages are calibrated against a **1M-token** window (see
+ * `KNOWN_CONTEXT_WINDOWS`). Measured over a long real session, occupancy ran
+ * 4.6% → 49.9% with a median of 14% — a session rarely approaches the window
+ * ceiling, so thresholds spaced for "percent full" have to sit low to use the
+ * whole ladder.
  */
 export const DEFAULT_TIER_CONFIG: TierConfig = {
-  tokenThresholds: [500, 1500, 3000, 6000, 12000],
-  contextThresholds: [30, 50, 70, 85, 95],
-  richnessThresholds: [50, 85],
-  modelBump: { 'claude-opus': 1 },
+  tokenThresholds: [250, 750, 2000, 4500, 9000],
+  contextThresholds: [5, 12, 20, 30, 45],
+  richnessThresholds: [12, 30],
+  modelBump: { 'claude-opus': 1, 'claude-fable': 1 },
   maxEnsemble: 5,
   maxRichness: 2,
-  highEndModels: ['claude-opus'],
+  highEndModels: ['claude-opus', 'claude-fable'],
 };
 
 function clamp(n: number, min: number, max: number): number {

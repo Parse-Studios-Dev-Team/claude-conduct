@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { loadConfig, updateConfig } from '../hook/config';
 import { resolvePaths, type ConductPaths } from '../hook/paths';
-import { isDaemonRunning } from '../hook/daemonControl';
+import { isDaemonRunning, startDaemon, stopDaemon } from '../hook/daemonControl';
 import { newestTranscript } from '../hook/transcript';
 import { sendCommand } from '../daemon/client';
 import { parseCommand } from '../daemon/command';
@@ -18,6 +18,10 @@ export interface CliDeps {
   now?: () => number;
   /** Injectable for tests; defaults to {@link newestTranscript}. */
   findTranscript?: (baseDir: string) => string | null;
+  /** Injectable for tests; defaults to the real process controls. */
+  startDaemon?: typeof startDaemon;
+  stopDaemon?: typeof stopDaemon;
+  isDaemonRunning?: typeof isDaemonRunning;
 }
 
 const fmtTier = (t: Tier): string =>
@@ -36,11 +40,30 @@ function helpText(): string {
   return [
     'Usage: /conduct <command>',
     '',
+    '  start            begin playback for this session (nothing plays until you do)',
+    '  stop             stop playback and release the audio device',
     '  status           show daemon state, mute/volume, session usage + tier',
     '  mute             silence output (persists until unmute)',
-    '  unmute           resume output',
+    '  unmute           resume output, starting playback if it is not running',
     '  volume <n>       set volume (0–1, or a percent like 80)',
   ].join('\n');
+}
+
+/**
+ * Resolve the tier the daemon should be on right now: prefer the live session's
+ * usage, falling back to whatever was last written to the command file.
+ */
+function tierNow(
+  paths: ConductPaths,
+  baseDir: string,
+  find: (b: string) => string | null,
+  config: ReturnType<typeof loadConfig>,
+): Tier | undefined {
+  const transcript = find(baseDir);
+  if (transcript) {
+    return mapToTier(extractUsage(transcript, { contextWindows: config.contextWindows }), config.tier);
+  }
+  return currentTier(paths) ?? undefined;
 }
 
 function status(paths: ConductPaths, baseDir: string, find: (b: string) => string | null): string {
@@ -79,11 +102,40 @@ export function runConduct(argv: string[], baseDir: string, deps: CliDeps = {}):
   const paths = resolvePaths(baseDir);
   const now = deps.now ?? Date.now;
   const find = deps.findTranscript ?? newestTranscript;
+  const start = deps.startDaemon ?? startDaemon;
+  const stop = deps.stopDaemon ?? stopDaemon;
+  const running = deps.isDaemonRunning ?? isDaemonRunning;
   const command = (argv[0] ?? 'status').toLowerCase();
 
   switch (command) {
     case 'status':
       return { output: status(paths, baseDir, find), exitCode: 0 };
+
+    case 'start': {
+      const config = loadConfig(paths.configPath);
+      const already = running(paths.pidPath);
+      if (!already) start(paths, config);
+      // Seed the tier so playback opens on the current layer, not from silence.
+      const tier = tierNow(paths, baseDir, find, config);
+      sendCommand(paths.commandPath, { tier, volume: config.mute ? 0 : config.volume }, now());
+
+      if (already) {
+        return { output: `Already playing${tier ? ` — ${fmtTier(tier)}` : ''}.`, exitCode: 0 };
+      }
+      const muted = config.mute ? ' (muted — `/conduct unmute` to hear it)' : '';
+      return {
+        output: `Playing${tier ? ` — ${fmtTier(tier)}` : ''}${muted}.`,
+        exitCode: 0,
+      };
+    }
+
+    case 'stop': {
+      if (!running(paths.pidPath)) {
+        return { output: 'Not playing.', exitCode: 0 };
+      }
+      stop(paths);
+      return { output: 'Stopped. `/conduct start` to bring it back.', exitCode: 0 };
+    }
 
     case 'mute': {
       updateConfig(paths.configPath, { mute: true });
@@ -94,13 +146,14 @@ export function runConduct(argv: string[], baseDir: string, deps: CliDeps = {}):
     case 'unmute': {
       updateConfig(paths.configPath, { mute: false });
       const config = loadConfig(paths.configPath);
-      const transcript = find(baseDir);
-      const tier = transcript
-        ? mapToTier(extractUsage(transcript, { contextWindows: config.contextWindows }), config.tier)
-        : (currentTier(paths) ?? undefined);
+      // Asking to hear it implies wanting it running, so this starts playback too.
+      const wasRunning = running(paths.pidPath);
+      if (!wasRunning) start(paths, config);
+      const tier = tierNow(paths, baseDir, find, config);
       // Restore volume and resume the right layer in one atomic command.
       sendCommand(paths.commandPath, { tier, volume: config.volume }, now());
-      return { output: `Unmuted (volume ${config.volume}).`, exitCode: 0 };
+      const started = wasRunning ? '' : ' Started playback.';
+      return { output: `Unmuted (volume ${config.volume}).${started}`, exitCode: 0 };
     }
 
     case 'volume': {
