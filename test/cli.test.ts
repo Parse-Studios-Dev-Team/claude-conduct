@@ -32,6 +32,10 @@ const deps: CliDeps = {
   findTranscript: () => fixture('large.jsonl'),
   startDaemon: () => {},
   stopDaemon: () => {},
+  // The launch is stubbed, so no daemon ever writes a `ready` pidfile — the
+  // boot confirmation (CC-16) has to be stubbed with it. Tests that care about
+  // the confirmation itself override this.
+  waitForDaemon: () => true,
 };
 const cfgOf = (baseDir: string) => loadConfig(resolvePaths(baseDir).configPath);
 const commandOf = (baseDir: string) => parseCommand(readFileSync(resolvePaths(baseDir).commandPath, 'utf8'));

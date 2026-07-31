@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { loadConfig, updateConfig } from '../hook/config';
 import { resolvePaths, type ConductPaths } from '../hook/paths';
-import { isDaemonRunning, startDaemon, stopDaemon } from '../hook/daemonControl';
+import { isDaemonRunning, startDaemon, stopDaemon, waitForDaemon } from '../hook/daemonControl';
 import { newestTranscript } from '../hook/transcript';
 import { sendCommand } from '../daemon/client';
 import { parseCommand } from '../daemon/command';
@@ -24,6 +24,8 @@ export interface CliDeps {
   startDaemon?: typeof startDaemon;
   stopDaemon?: typeof stopDaemon;
   isDaemonRunning?: typeof isDaemonRunning;
+  /** Injectable for tests; defaults to {@link waitForDaemon}. */
+  waitForDaemon?: typeof waitForDaemon;
 }
 
 const fmtTier = (t: Tier): string =>
@@ -36,6 +38,22 @@ function currentTier(paths: ConductPaths): Tier | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * What to say when the daemon never confirmed it started (CC-16).
+ *
+ * Points at the log rather than guessing, because the causes are varied and the
+ * log is where the child's stderr actually went — the whole reason this failure
+ * mode was invisible is that nobody was reading it.
+ */
+function bootFailure(paths: ConductPaths): string {
+  return [
+    'The daemon did not start.',
+    '',
+    `Its output is in ${paths.logPath}`,
+    'Nothing is playing. `npm run build` first if you are running from source.',
+  ].join('\n');
 }
 
 /** Newest recording in the directory, or `null` when there are none. */
@@ -113,6 +131,7 @@ export function runConduct(argv: string[], baseDir: string, deps: CliDeps = {}):
   const start = deps.startDaemon ?? startDaemon;
   const stop = deps.stopDaemon ?? stopDaemon;
   const running = deps.isDaemonRunning ?? isDaemonRunning;
+  const wait = deps.waitForDaemon ?? waitForDaemon;
   const command = (argv[0] ?? 'status').toLowerCase();
 
   switch (command) {
@@ -130,6 +149,13 @@ export function runConduct(argv: string[], baseDir: string, deps: CliDeps = {}):
       if (already) {
         return { output: `Already playing${tier ? ` — ${fmtTier(tier)}` : ''}.`, exitCode: 0 };
       }
+
+      // CC-16: `spawn` returning a pid is not the daemon having started. Wait for
+      // the daemon to say so itself before claiming anything is playing.
+      if (!wait(paths.pidPath)) {
+        return { output: bootFailure(paths), exitCode: 1 };
+      }
+
       const muted = config.mute ? ' (muted — `/conduct unmute` to hear it)' : '';
       return {
         output: `Playing${tier ? ` — ${fmtTier(tier)}` : ''}${muted}.`,
@@ -160,6 +186,11 @@ export function runConduct(argv: string[], baseDir: string, deps: CliDeps = {}):
       const tier = tierNow(paths, baseDir, find, config);
       // Restore volume and resume the right layer in one atomic command.
       sendCommand(paths.commandPath, { tier, volume: config.volume }, now());
+
+      if (!wasRunning && !wait(paths.pidPath)) {
+        // Unmuting still took effect; only the playback claim would be a lie.
+        return { output: `Unmuted (volume ${config.volume}).\n\n${bootFailure(paths)}`, exitCode: 1 };
+      }
       const started = wasRunning ? '' : ' Started playback.';
       return { output: `Unmuted (volume ${config.volume}).${started}`, exitCode: 0 };
     }

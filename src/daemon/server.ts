@@ -108,16 +108,24 @@ export class ConductDaemon {
       this.pollTimer.unref?.();
     }
 
+    if (this.opts.autoRender !== false) this.startPump();
+    if (this.opts.autoWatchdog !== false) this.startWatchdog();
+
+    // Publish the pidfile **last** (CC-16). Whoever launched us can only tell
+    // that a process was created — `spawn` returns a pid for a command that dies
+    // a millisecond later, which is exactly how CC-14 stayed invisible for days.
+    // Writing our own pid plus a `ready` marker after the sink and pump are up
+    // is the first moment anything can honestly claim the daemon is playing.
+    //
+    // `readPid` parses the leading integer, so the marker is invisible to
+    // readers that predate it.
     if (this.opts.pidPath) {
       try {
-        writeFileSync(this.opts.pidPath, `${process.pid}\n`);
+        writeFileSync(this.opts.pidPath, `${process.pid} ready\n`);
       } catch {
         /* best-effort */
       }
     }
-
-    if (this.opts.autoRender !== false) this.startPump();
-    if (this.opts.autoWatchdog !== false) this.startWatchdog();
   }
 
   /**
