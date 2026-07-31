@@ -111,13 +111,23 @@ Once hooks are installed, control playback from within Claude Code:
 
 | command | effect |
 | ------- | ------ |
+| `/conduct start` | begin playback for this session |
+| `/conduct stop` | stop playback and release the audio device |
 | `/conduct status` | daemon state, mute/volume, current session usage + tier |
 | `/conduct mute` | silence output — **persists** (in config) until unmuted |
 | `/conduct unmute` | resume; restores volume and the current tier |
 | `/conduct volume <n>` | set volume live — `0–1` or a percent like `80` |
+| `/conduct render [session]` | render a finished session as a piece (newest if omitted) |
 
 `mute` and `volume` apply to the running daemon immediately (and persist in
 `conduct.config.json`). Same commands work from a shell: `npm run conduct -- status`.
+
+**`start` and `unmute` report only what they verified (CC-16).** A `spawn` that
+returns a pid means a process was created, not that a daemon booted — that
+distinction is how CC-14 reported "Playing" into silence for days. The daemon
+now marks the pidfile `ready` once its audio path is live, and the CLI waits
+(bounded, ~2s) for that before claiming anything is playing. If it doesn't
+arrive you get a non-zero exit and a pointer to `conduct-daemon.log` instead.
 
 ## Modes (CC-13)
 
