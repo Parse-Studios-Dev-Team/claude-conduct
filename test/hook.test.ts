@@ -13,9 +13,11 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, basename } from 'node:path';
 import { loadConfig, DEFAULT_CONFIG } from '../src/hook/config';
-import { resolvePaths } from '../src/hook/paths';
+import { resolvePaths, type ConductPaths } from '../src/hook/paths';
+import { startDaemon, stopDaemon, isDaemonRunning } from '../src/hook/daemonControl';
+import { touchHeartbeat, clearHeartbeat, heartbeatAgeMs } from '../src/hook/heartbeat';
 import { handleEvent, type HandlerDeps, type HookInput } from '../src/hook/handler';
-import { extractUsage } from '../src/extractUsage';
+import { extractTurnFacts } from '../src/extractUsage';
 import { recordTier, clearSession, readState } from '../src/state';
 import { sendTier } from '../src/daemon/client';
 import { mapToTier } from '../src/mapToTier';
@@ -103,10 +105,12 @@ interface Calls {
   stopDaemon: number;
   clearSession: string[];
   sendTier: Array<{ path: string; tier: { ensembleSize: number; richness: number } }>;
-  extractUsage: number;
+  extractTurnFacts: number;
   recordTurn: Array<{ dir: string; sessionId: string; tier: Tier }>;
   finalize: string[];
   prune: number[];
+  touchHeartbeat: number;
+  clearHeartbeat: number;
 }
 
 function stubDeps(usage: Usage, emit: boolean): { deps: HandlerDeps; calls: Calls } {
@@ -115,15 +119,17 @@ function stubDeps(usage: Usage, emit: boolean): { deps: HandlerDeps; calls: Call
     stopDaemon: 0,
     clearSession: [],
     sendTier: [],
-    extractUsage: 0,
+    extractTurnFacts: 0,
     recordTurn: [],
     finalize: [],
     prune: [],
+    touchHeartbeat: 0,
+    clearHeartbeat: 0,
   };
   const deps: HandlerDeps = {
-    extractUsage: () => {
-      calls.extractUsage++;
-      return usage;
+    extractTurnFacts: () => {
+      calls.extractTurnFacts++;
+      return { ...usage, outputTokens: usage.tokens, effort: null, shape: 'text', tool: null, endsTurn: false };
     },
     recordTier: (_sp, _sid, tier) => ({ emit, tier, previous: null }),
     clearSession: (_sp, sid) => {
@@ -146,6 +152,12 @@ function stubDeps(usage: Usage, emit: boolean): { deps: HandlerDeps; calls: Call
     },
     pruneRecordings: (_dir, keep) => {
       calls.prune.push(keep);
+    },
+    touchHeartbeat: () => {
+      calls.touchHeartbeat++;
+    },
+    clearHeartbeat: () => {
+      calls.clearHeartbeat++;
     },
   };
   return { deps, calls };
@@ -218,7 +230,7 @@ test('a usage event missing transcript_path or session_id is a no-op', () => {
   const { deps, calls } = stubDeps({ tokens: 5, contextPct: 5, model: null }, true);
   assert.equal(handleEvent({ hook_event_name: 'PostToolUse', session_id: 's' }, DEFAULT_CONFIG, paths, deps).action, 'noop');
   assert.equal(handleEvent({ hook_event_name: 'PostToolUse', transcript_path: '/t' }, DEFAULT_CONFIG, paths, deps).action, 'noop');
-  assert.equal(calls.extractUsage, 0);
+  assert.equal(calls.extractTurnFacts, 0);
   assert.equal(calls.sendTier.length, 0);
 });
 
@@ -229,7 +241,7 @@ test('end-to-end wiring: a real transcript drives a real command + state file, a
     mkdirSync(join(dir, '.claude'), { recursive: true });
     const p = resolvePaths(dir);
     const deps: HandlerDeps = {
-      extractUsage,
+      extractTurnFacts,
       recordTier,
       clearSession,
       sendTier,
@@ -238,6 +250,8 @@ test('end-to-end wiring: a real transcript drives a real command + state file, a
       recordTurn,
       finalizeRecording,
       pruneRecordings,
+      touchHeartbeat,
+      clearHeartbeat,
     };
 
     const input: HookInput = {
@@ -464,4 +478,135 @@ test('packTier / unpackTier round-trip, including an absent timbre', () => {
   assert.deepEqual(packTier({ ensembleSize: 3, richness: 1, timbre: 1 }), { e: 3, r: 1, s: 1 });
   assert.deepEqual(packTier({ ensembleSize: 3, richness: 1 }), { e: 3, r: 1, s: 0 });
   assert.deepEqual(unpackTier({ e: 4, r: 2, s: 1 }), { ensembleSize: 4, richness: 2, timbre: 1 });
+});
+
+// --- heartbeat --------------------------------------------------------------
+
+test('every non-SessionEnd event stamps the heartbeat; SessionEnd clears it', () => {
+  const { deps, calls } = stubDeps({ tokens: 0, contextPct: 0, model: null }, true);
+
+  handleEvent({ hook_event_name: 'SessionStart' }, DEFAULT_CONFIG, paths, deps);
+  assert.equal(calls.touchHeartbeat, 1, 'SessionStart is proof of life even though it starts nothing');
+
+  handleEvent({ hook_event_name: 'PostToolUse', transcript_path: '/t', session_id: 's' }, DEFAULT_CONFIG, paths, deps);
+  assert.equal(calls.touchHeartbeat, 2);
+
+  // Ignored events count too — the point is liveness, not usage.
+  handleEvent({ hook_event_name: 'PostToolUse' }, DEFAULT_CONFIG, paths, deps);
+  assert.equal(calls.touchHeartbeat, 3, 'stamped before the missing-transcript bail-out');
+
+  handleEvent({ hook_event_name: 'SessionEnd', session_id: 's' }, DEFAULT_CONFIG, paths, deps);
+  assert.equal(calls.touchHeartbeat, 3, 'SessionEnd must not refresh it');
+  assert.equal(calls.clearHeartbeat, 1);
+});
+
+test('heartbeat helpers: age is null when missing, ~0 right after a touch', () => {
+  withTmpDir((dir) => {
+    const heartbeatPath = join(dir, '.claude', 'conduct.heartbeat');
+    assert.equal(heartbeatAgeMs(heartbeatPath), null, 'missing is distinct from very old');
+
+    touchHeartbeat(heartbeatPath);
+    const age = heartbeatAgeMs(heartbeatPath);
+    assert.ok(age !== null && age >= 0 && age < 5_000, `fresh stamp, got ${age}`);
+
+    clearHeartbeat(heartbeatPath);
+    assert.equal(heartbeatAgeMs(heartbeatPath), null);
+    assert.doesNotThrow(() => clearHeartbeat(heartbeatPath), 'clearing twice is fine');
+  });
+});
+
+test('resolvePaths puts the heartbeat beside the other runtime files', () => {
+  const p = resolvePaths('/proj');
+  assert.equal(p.heartbeatPath, join(dirname(p.pidPath), 'conduct.heartbeat'));
+});
+
+test('idleTimeoutMs: defaults to 15min, accepts 0 to disable, rejects junk', () => {
+  withTmpDir((dir) => {
+    const configPath = join(dir, 'conduct.config.json');
+    assert.equal(DEFAULT_CONFIG.idleTimeoutMs, 15 * 60 * 1000);
+
+    writeFileSync(configPath, JSON.stringify({ idleTimeoutMs: 0 }));
+    assert.equal(loadConfig(configPath).idleTimeoutMs, 0, '0 is a valid "never expire"');
+
+    writeFileSync(configPath, JSON.stringify({ idleTimeoutMs: 30_000 }));
+    assert.equal(loadConfig(configPath).idleTimeoutMs, 30_000);
+
+    for (const bad of [-1, 'soon', null]) {
+      writeFileSync(configPath, JSON.stringify({ idleTimeoutMs: bad }));
+      assert.equal(loadConfig(configPath).idleTimeoutMs, DEFAULT_CONFIG.idleTimeoutMs, `rejects ${String(bad)}`);
+    }
+  });
+});
+
+// --- daemon launch ----------------------------------------------------------
+
+/**
+ * Spawning the daemon is the one step that can't be proven by unit-testing the
+ * pieces: it crosses a process boundary, and every failure on the far side is
+ * swallowed so a hook never blocks a turn. That combination hid a real bug —
+ * a user-scope install resolved the entrypoint against the *session's* project
+ * directory, so Conduct started fine in its own repo and died instantly with
+ * ERR_MODULE_NOT_FOUND in every other one, while still reporting "Playing".
+ * So this test actually launches it from a directory that is not the install.
+ */
+test('startDaemon launches from a project that is not the Conduct install', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'conduct-foreign-'));
+  const runtime = join(dir, 'runtime');
+  mkdirSync(runtime, { recursive: true });
+
+  const paths: ConductPaths = {
+    baseDir: dir, // a bare directory: no dist/, no bin/, no node_modules
+    configPath: join(dir, 'conduct.config.json'),
+    statePath: join(runtime, 'conduct-state.json'),
+    commandPath: join(runtime, 'conduct-command.json'),
+    pidPath: join(runtime, 'conduct.pid'),
+    heartbeatPath: join(runtime, 'conduct.heartbeat'),
+    logPath: join(runtime, 'conduct-daemon.log'),
+    recordingsDir: join(runtime, 'recordings'),
+  };
+
+  try {
+    // `silent` keeps the test from opening an audio device.
+    startDaemon(paths, { ...DEFAULT_CONFIG, silent: true, idleTimeoutMs: 10_000 });
+
+    // The daemon writes its log only after booting, so poll rather than sleep.
+    const deadline = Date.now() + 10_000;
+    let log = '';
+    while (Date.now() < deadline) {
+      log = existsSync(paths.logPath) ? readFileSync(paths.logPath, 'utf8') : '';
+      if (log.includes('daemon up')) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    assert.ok(
+      !log.includes('ERR_MODULE_NOT_FOUND'),
+      `daemon entrypoint resolved against the wrong root:\n${log}`,
+    );
+    assert.match(log, /daemon up/, `daemon never came up:\n${log || '(empty log)'}`);
+    assert.ok(isDaemonRunning(paths.pidPath), 'daemon should still be alive after booting');
+  } finally {
+    // Read the pid before anything can remove the pidfile: a detached daemon that
+    // outlived the suite would keep rendering audio with no session behind it.
+    const pid = existsSync(paths.pidPath)
+      ? Number.parseInt(readFileSync(paths.pidPath, 'utf8').trim(), 10)
+      : NaN;
+    stopDaemon(paths);
+    if (Number.isInteger(pid) && pid > 0) {
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        try {
+          process.kill(pid, 0);
+        } catch {
+          break; // gone
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      try {
+        process.kill(pid, 'SIGKILL'); // backstop if SIGTERM was ignored
+      } catch {
+        /* already exited */
+      }
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

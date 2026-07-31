@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Tier } from './types';
+import type { Tier, TurnFacts, Usage } from './types';
 import {
   encodeTurn,
   packTier,
@@ -25,6 +25,9 @@ export {
   summarize,
   packTier,
   unpackTier,
+  hasSignals,
+  turnSignals,
+  recordingSignals,
   type RecordedTurn,
   type RecordedSummary,
   type Recording,
@@ -54,20 +57,32 @@ export function appendTurn(recordingsDir: string, sessionId: string, turn: Recor
   }
 }
 
-/** Convenience wrapper that takes a {@link Tier} rather than the terse shape. */
+/**
+ * Convenience wrapper that takes a {@link Tier} rather than the terse shape.
+ *
+ * `usage` may be a bare {@link Usage} or the wider {@link TurnFacts}; the v2 axes
+ * are written only when they're there, so a caller that has just the three usage
+ * fields still produces a valid (if v1-shaped) line.
+ */
 export function recordTurn(
   recordingsDir: string,
   sessionId: string,
-  usage: { tokens: number; contextPct: number; model: string | null },
+  usage: Usage | TurnFacts,
   tier: Tier,
   now: number = Date.now(),
 ): void {
+  const facts = usage as Partial<TurnFacts> & Usage;
   appendTurn(recordingsDir, sessionId, {
     t: now,
-    tok: usage.tokens,
-    ctx: usage.contextPct,
-    model: usage.model,
+    tok: facts.tokens,
+    ctx: facts.contextPct,
+    model: facts.model,
     tier: packTier(tier),
+    ...(typeof facts.outputTokens === 'number' ? { out: facts.outputTokens } : {}),
+    ...(facts.effort ? { ef: facts.effort } : {}),
+    ...(facts.shape ? { sh: facts.shape } : {}),
+    ...(facts.tool ? { tl: facts.tool } : {}),
+    ...(facts.endsTurn ? { end: true } : {}),
   });
 }
 
