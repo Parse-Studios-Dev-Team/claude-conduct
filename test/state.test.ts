@@ -118,13 +118,17 @@ test('clearSession on an unknown session is a no-op and does not throw', () => {
 
 test('readState returns an empty state for a missing file', () => {
   withTmp((statePath) => {
-    assert.deepEqual(readState(statePath), { version: STATE_VERSION, sessions: {} });
+    assert.deepEqual(readState(statePath), {
+      version: STATE_VERSION,
+      sessions: {},
+      unreadable: {},
+    });
   });
 });
 
 test('readState tolerates corrupt JSON and a version mismatch', () => {
   withTmp((statePath) => {
-    writeState(statePath, { version: STATE_VERSION, sessions: {} }); // creates the dir
+    writeState(statePath, { version: STATE_VERSION, sessions: {}, unreadable: {} }); // creates the dir
     writeFileSync(statePath, '{ this is not json', 'utf8');
     assert.deepEqual(readState(statePath).sessions, {});
 
@@ -138,6 +142,7 @@ test('writeState creates the parent .claude directory and round-trips', () => {
     const doc: ConductState = {
       version: STATE_VERSION,
       sessions: { s: { tier: tier(1, 1), updatedAt: '2026-07-24T00:00:00.000Z' } },
+      unreadable: {},
     };
     writeState(statePath, doc);
     assert.ok(existsSync(statePath));
@@ -169,6 +174,7 @@ test('maxSessionAgeMs prunes other stale sessions but keeps the active one', () 
     const day = 24 * 60 * 60 * 1000;
     // Seed an old session directly.
     writeState(statePath, {
+      unreadable: {},
       version: STATE_VERSION,
       sessions: {
         old: { tier: tier(1, 0), updatedAt: new Date(0).toISOString() },

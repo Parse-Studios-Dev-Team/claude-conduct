@@ -60,6 +60,13 @@ export interface RecordedSummary {
   durationMs: number;
   peakTier: { e: number; r: number; s: number };
   models: string[];
+  /**
+   * v2 — turns whose transcript could not be read and were therefore *not*
+   * recorded (CC-15). Present and non-zero means Conduct ran against a host
+   * whose transcript format it does not understand; a session that is all
+   * `unreadable` and no turns is the signature of that failure.
+   */
+  unreadable?: number;
 }
 
 /** A parsed recording: the turns, plus the summary when the session ended. */
@@ -116,7 +123,7 @@ export function parseRecording(text: string): Recording {
 }
 
 /** Compute the summary for a set of turns. Pure. */
-export function summarize(turns: RecordedTurn[]): RecordedSummary {
+export function summarize(turns: RecordedTurn[], unreadable = 0): RecordedSummary {
   const models: string[] = [];
   let peak = { e: 0, r: 0, s: 0 };
 
@@ -142,6 +149,7 @@ export function summarize(turns: RecordedTurn[]): RecordedSummary {
     durationMs: startedAt !== null && endedAt !== null ? endedAt - startedAt : 0,
     peakTier: peak,
     models,
+    ...(unreadable > 0 ? { unreadable } : {}),
   };
 }
 

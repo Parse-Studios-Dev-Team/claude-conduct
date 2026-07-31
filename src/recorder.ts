@@ -96,16 +96,30 @@ export function readRecording(path: string): Recording {
 }
 
 /**
- * Append the summary line for a finished session. A session with no recorded
- * turns writes nothing — an empty file is noise the playground would have to
- * filter, and a summary of zero turns tells nobody anything.
+ * Append the summary line for a finished session.
+ *
+ * A session with no recorded turns and nothing to report writes nothing — an
+ * empty file is noise the playground would have to filter, and a summary of zero
+ * turns tells nobody anything.
+ *
+ * `unreadable > 0` is the exception (CC-15): a session that recorded *nothing*
+ * because every turn was unreadable is precisely the failure worth surfacing, so
+ * it gets a summary saying so rather than leaving no trace at all. That failure
+ * was invisible for days because every layer here swallows errors by design.
  */
-export function finalizeRecording(recordingsDir: string, sessionId: string): void {
+export function finalizeRecording(
+  recordingsDir: string,
+  sessionId: string,
+  unreadable = 0,
+): void {
   try {
     const path = recordingPath(recordingsDir, sessionId);
     const { turns, summary } = readRecording(path);
-    if (turns.length === 0 || summary) return; // nothing to say, or already finalized
-    appendFileSync(path, `${JSON.stringify(summarize(turns))}\n`, 'utf8');
+    if (summary) return; // already finalized
+    if (turns.length === 0 && unreadable === 0) return; // nothing to say
+    // The unreadable-only case has no file yet — nothing was ever appended.
+    mkdirSync(recordingsDir, { recursive: true });
+    appendFileSync(path, `${JSON.stringify(summarize(turns, unreadable))}\n`, 'utf8');
   } catch {
     /* best-effort */
   }

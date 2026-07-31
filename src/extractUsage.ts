@@ -220,6 +220,25 @@ export function extractTurnFacts(transcriptPath: string, options?: ExtractOption
 }
 
 /**
+ * Whether a turn carried any usable signal at all (CC-15).
+ *
+ * `extractUsage` returns its empty snapshot for two very different situations:
+ * a transcript we simply haven't caught up with yet, and a transcript whose
+ * *format we cannot read*. Claude Code hosted inside another editor is the real
+ * case — Cursor writes `{role, message:{content}}` with no `usage`, no `model`
+ * and no `stop_reason`, so there is nothing to extract no matter how the parser
+ * is written.
+ *
+ * Treating that as "tier 0" recorded 25,470 turns of pure silence across two
+ * sessions — 96% of all recorded history on one machine — and drove playback to
+ * silence rather than leaving it alone. A turn with no model *and* no tokens is
+ * not a quiet turn; it is a turn we failed to read, and the two must not be
+ * confused.
+ */
+export const isReadable = (usage: Usage): boolean =>
+  usage.model !== null || usage.tokens > 0;
+
+/**
  * Read a Claude Code transcript JSONL file and return the current {@link Usage}
  * snapshot for the session.
  *
