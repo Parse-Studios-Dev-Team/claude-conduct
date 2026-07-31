@@ -34,6 +34,40 @@ export interface ConductConfig {
   recordings: RecordingsConfig;
   /** CC-11 live playback shape: presence + cadence, or the original gradient. */
   live: LiveConfig;
+  /**
+   * CC-13 — what this session is for.
+   *
+   * Live and playback are not two settings on one engine; they want opposite
+   * things. Live has to be ignorable and legible. Playback has to be interesting
+   * and has no legibility requirement at all. Splitting the difference is what
+   * produced "sounds mostly the same", so the choice is explicit and each side
+   * is tuned for its own goal.
+   */
+  mode: ConductMode;
+  /** CC-13 tuning for rendered pieces. */
+  playback: PlaybackConfig;
+}
+
+/**
+ * `live` plays as you work and renders nothing. `playback` stays silent and
+ * leaves a piece behind at the end — which plenty of people will want, and is
+ * the only mode that coexists with music you are already playing. `both` does
+ * each. `off` disables audio *and* rendering, but not recording.
+ */
+export type ConductMode = 'live' | 'playback' | 'both' | 'off';
+
+/** Tuning for CC-13 rendered playback. */
+export interface PlaybackConfig {
+  /** Target length of the piece, regardless of how long the session ran. */
+  seconds: number;
+  /**
+   * Also render sessions that ended without firing `SessionEnd`. Closing the
+   * window or killing the process skips that event entirely, so a render
+   * triggered only by it would silently never happen for those sessions.
+   */
+  sweepStale: boolean;
+  /** Keep this many renders. ~15 MB each, so this is the real disk cost. */
+  keep: number;
 }
 
 /** Tuning for the CC-9 session recorder. */
@@ -57,6 +91,8 @@ export const DEFAULT_CONFIG: ConductConfig = {
   contextWindows: {},
   recordings: { enabled: true, keep: 20 },
   live: { ...DEFAULT_LIVE_CONFIG },
+  mode: 'live',
+  playback: { seconds: 90, sweepStale: true, keep: 20 },
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -136,6 +172,31 @@ export function loadConfig(configPath: string): ConductConfig {
       live.cadenceHoldMs = parsed.live.cadenceHoldMs;
     }
     config.live = live;
+  }
+  if (
+    parsed.mode === 'live' ||
+    parsed.mode === 'playback' ||
+    parsed.mode === 'both' ||
+    parsed.mode === 'off'
+  ) {
+    config.mode = parsed.mode;
+  }
+  if (isPlainObject(parsed.playback)) {
+    const playback = { ...DEFAULT_CONFIG.playback };
+    if (
+      typeof parsed.playback.seconds === 'number' &&
+      Number.isFinite(parsed.playback.seconds) &&
+      parsed.playback.seconds > 0
+    ) {
+      playback.seconds = parsed.playback.seconds;
+    }
+    if (typeof parsed.playback.sweepStale === 'boolean') {
+      playback.sweepStale = parsed.playback.sweepStale;
+    }
+    if (typeof parsed.playback.keep === 'number' && Number.isFinite(parsed.playback.keep)) {
+      playback.keep = Math.max(0, Math.floor(parsed.playback.keep));
+    }
+    config.playback = playback;
   }
   return config;
 }

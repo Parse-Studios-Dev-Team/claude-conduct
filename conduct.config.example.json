@@ -1,4 +1,5 @@
 {
+  "mode": "live",
   "mute": false,
   "volume": 0.8,
   "silent": false,
@@ -17,6 +18,11 @@
     "levels": [2, 3, 5],
     "steps": [1500, 12000],
     "cadenceHoldMs": 2500
+  },
+  "playback": {
+    "seconds": 90,
+    "sweepStale": true,
+    "keep": 20
   },
   "recordings": { "enabled": true, "keep": 20 }
 }

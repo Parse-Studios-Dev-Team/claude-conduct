@@ -132,6 +132,8 @@ function stubDeps(usage: Usage, emit: boolean): { deps: HandlerDeps; calls: Call
       return { ...usage, outputTokens: usage.tokens, effort: null, shape: 'text', tool: null, endsTurn: false };
     },
     recordTier: (_sp, _sid, tier) => ({ emit, tier, previous: null }),
+    startRender: () => {},
+    pendingRenders: () => [],
     noteUnreadable: () => 1,
     unreadableCount: () => 0,
     clearSession: (_sp, sid) => {
@@ -260,6 +262,8 @@ test('end-to-end wiring: a real transcript drives a real command + state file, a
       recordTurn,
       finalizeRecording,
       pruneRecordings,
+      startRender: () => {},
+      pendingRenders: () => [],
       touchHeartbeat,
       clearHeartbeat,
     };
@@ -573,6 +577,7 @@ test('startDaemon launches from a project that is not the Conduct install', asyn
     heartbeatPath: join(runtime, 'conduct.heartbeat'),
     logPath: join(runtime, 'conduct-daemon.log'),
     recordingsDir: join(runtime, 'recordings'),
+    rendersDir: join(runtime, 'renders'),
   };
 
   try {

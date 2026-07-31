@@ -6,11 +6,21 @@ import { startDaemon, stopDaemon } from './daemonControl';
 import { touchHeartbeat, clearHeartbeat } from './heartbeat';
 import { recordTurn, finalizeRecording, pruneRecordings } from '../recorder';
 import { liveTier, phaseFor } from '../liveMode';
+import { startRender } from './renderControl';
+import { pendingRenders } from '../renderStore';
 import type { Tier } from '../types';
 import type { ConductConfig } from './config';
 import type { ConductPaths } from './paths';
 
 const SILENT_TIER: Tier = { ensembleSize: 0, richness: 0 };
+
+/** CC-13: does this session play audio as you work? */
+const liveEnabled = (config: ConductConfig): boolean =>
+  config.mode === 'live' || config.mode === 'both';
+
+/** CC-13: does this session leave a rendered piece behind? */
+const playbackEnabled = (config: ConductConfig): boolean =>
+  config.mode === 'playback' || config.mode === 'both';
 
 /** The subset of a Claude Code hook payload we read (all optional; parsed defensively). */
 export interface HookInput {
@@ -38,6 +48,8 @@ export interface HandlerDeps {
   recordTurn: typeof recordTurn;
   finalizeRecording: typeof finalizeRecording;
   pruneRecordings: typeof pruneRecordings;
+  startRender: typeof startRender;
+  pendingRenders: typeof pendingRenders;
 }
 
 export const realDeps: HandlerDeps = {
@@ -55,6 +67,8 @@ export const realDeps: HandlerDeps = {
   recordTurn,
   finalizeRecording,
   pruneRecordings,
+  startRender,
+  pendingRenders,
 };
 
 export interface HandleResult {
@@ -108,6 +122,18 @@ export function handleEvent(
           deps.finalizeRecording(paths.recordingsDir, input.session_id, unreadable);
           deps.pruneRecordings(paths.recordingsDir, config.recordings.keep);
         }
+
+        // CC-13: leave a piece behind. Spawned detached — rendering 90 seconds
+        // of audio is seconds of CPU, and `SessionEnd` has to return now.
+        if (playbackEnabled(config)) {
+          const pending = config.playback.sweepStale
+            ? deps.pendingRenders(paths.recordingsDir, paths.rendersDir)
+            : [];
+          // The just-ended session first, then any stragglers whose `SessionEnd`
+          // never fired (window closed, process killed).
+          const ids = [input.session_id, ...pending.filter((id) => id !== input.session_id)];
+          deps.startRender(paths, config, ids);
+        }
       }
       return { action: 'stop', emitted: null };
 
@@ -138,6 +164,12 @@ export function handleEvent(
       const mapped = mapToTier(facts, config.tier);
       if (config.recordings.enabled) {
         deps.recordTurn(paths.recordingsDir, input.session_id, facts, mapped);
+      }
+
+      // In playback-only mode the recording above is the entire job: nothing is
+      // sent to the daemon, so the session stays silent and still renders.
+      if (!liveEnabled(config)) {
+        return { action: 'noop', emitted: null };
       }
 
       const phase = phaseFor(input.hook_event_name, facts.endsTurn);

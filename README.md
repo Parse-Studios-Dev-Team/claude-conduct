@@ -119,6 +119,44 @@ Once hooks are installed, control playback from within Claude Code:
 `mute` and `volume` apply to the running daemon immediately (and persist in
 `conduct.config.json`). Same commands work from a shell: `npm run conduct -- status`.
 
+## Modes (CC-13)
+
+`mode` decides what a session is for. Live and playback are not two settings on
+one engine — they want opposite things. Live has to be ignorable and legible;
+playback has to be interesting and has no legibility requirement at all.
+
+| `mode` | while you work | when the session ends |
+| --- | --- | --- |
+| `live` (default) | presence + cadence | — |
+| `playback` | silent | renders a piece |
+| `both` | presence + cadence | renders a piece |
+| `off` | silent | — |
+
+Every mode still **records**, because the recording is what playback is made of.
+
+```jsonc
+{
+  "mode": "playback",
+  "playback": {
+    "seconds": 90,      // target length regardless of how long the session ran
+    "sweepStale": true, // also render sessions whose SessionEnd never fired
+    "keep": 20          // renders are ~15 MB each — this is the real disk cost
+  }
+}
+```
+
+Renders land in `<runtime>/renders/<session_id>.wav`, beside the recordings.
+`SessionEnd` triggers them, spawned detached so the hook returns immediately.
+
+`SessionEnd` doesn't always fire — closing the window or killing the process
+skips it, which is the same gap the idle watchdog exists for. So playback mode
+also sweeps for recordings that have settled without producing a render, rather
+than trusting one event. Render anything on demand with:
+
+```bash
+npm run conduct -- render          # newest recording
+```
+
 ## Live mode (CC-11)
 
 By default live playback is **presence + cadence**, not a continuous gradient:
