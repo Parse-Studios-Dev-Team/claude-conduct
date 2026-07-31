@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Tier } from './types';
+import type { Tier, TurnFacts, Usage } from './types';
 import {
   encodeTurn,
   packTier,
@@ -25,6 +25,9 @@ export {
   summarize,
   packTier,
   unpackTier,
+  hasSignals,
+  turnSignals,
+  recordingSignals,
   type RecordedTurn,
   type RecordedSummary,
   type Recording,
@@ -54,20 +57,32 @@ export function appendTurn(recordingsDir: string, sessionId: string, turn: Recor
   }
 }
 
-/** Convenience wrapper that takes a {@link Tier} rather than the terse shape. */
+/**
+ * Convenience wrapper that takes a {@link Tier} rather than the terse shape.
+ *
+ * `usage` may be a bare {@link Usage} or the wider {@link TurnFacts}; the v2 axes
+ * are written only when they're there, so a caller that has just the three usage
+ * fields still produces a valid (if v1-shaped) line.
+ */
 export function recordTurn(
   recordingsDir: string,
   sessionId: string,
-  usage: { tokens: number; contextPct: number; model: string | null },
+  usage: Usage | TurnFacts,
   tier: Tier,
   now: number = Date.now(),
 ): void {
+  const facts = usage as Partial<TurnFacts> & Usage;
   appendTurn(recordingsDir, sessionId, {
     t: now,
-    tok: usage.tokens,
-    ctx: usage.contextPct,
-    model: usage.model,
+    tok: facts.tokens,
+    ctx: facts.contextPct,
+    model: facts.model,
     tier: packTier(tier),
+    ...(typeof facts.outputTokens === 'number' ? { out: facts.outputTokens } : {}),
+    ...(facts.effort ? { ef: facts.effort } : {}),
+    ...(facts.shape ? { sh: facts.shape } : {}),
+    ...(facts.tool ? { tl: facts.tool } : {}),
+    ...(facts.endsTurn ? { end: true } : {}),
   });
 }
 
@@ -81,16 +96,30 @@ export function readRecording(path: string): Recording {
 }
 
 /**
- * Append the summary line for a finished session. A session with no recorded
- * turns writes nothing — an empty file is noise the playground would have to
- * filter, and a summary of zero turns tells nobody anything.
+ * Append the summary line for a finished session.
+ *
+ * A session with no recorded turns and nothing to report writes nothing — an
+ * empty file is noise the playground would have to filter, and a summary of zero
+ * turns tells nobody anything.
+ *
+ * `unreadable > 0` is the exception (CC-15): a session that recorded *nothing*
+ * because every turn was unreadable is precisely the failure worth surfacing, so
+ * it gets a summary saying so rather than leaving no trace at all. That failure
+ * was invisible for days because every layer here swallows errors by design.
  */
-export function finalizeRecording(recordingsDir: string, sessionId: string): void {
+export function finalizeRecording(
+  recordingsDir: string,
+  sessionId: string,
+  unreadable = 0,
+): void {
   try {
     const path = recordingPath(recordingsDir, sessionId);
     const { turns, summary } = readRecording(path);
-    if (turns.length === 0 || summary) return; // nothing to say, or already finalized
-    appendFileSync(path, `${JSON.stringify(summarize(turns))}\n`, 'utf8');
+    if (summary) return; // already finalized
+    if (turns.length === 0 && unreadable === 0) return; // nothing to say
+    // The unreadable-only case has no file yet — nothing was ever appended.
+    mkdirSync(recordingsDir, { recursive: true });
+    appendFileSync(path, `${JSON.stringify(summarize(turns, unreadable))}\n`, 'utf8');
   } catch {
     /* best-effort */
   }

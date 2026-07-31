@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import type { ExtractOptions, Usage } from './types';
+import { asEffort, classifyBlocks, type ContentBlock } from './turnSignals';
+import type { ExtractOptions, TurnFacts, Usage } from './types';
 
 /**
  * Fallback context window (tokens) for a model we don't recognize. Deliberately
@@ -29,7 +30,16 @@ export const KNOWN_CONTEXT_WINDOWS: Record<string, number> = {
   'claude-haiku-4-5': 200_000,
 };
 
-const EMPTY: Usage = { tokens: 0, contextPct: 0, model: null };
+const EMPTY: TurnFacts = {
+  tokens: 0,
+  contextPct: 0,
+  model: null,
+  outputTokens: 0,
+  effort: null,
+  shape: 'text',
+  tool: null,
+  endsTurn: false,
+};
 
 /** Coerce an unknown JSON value to a finite, non-negative number; otherwise 0. */
 function toCount(value: unknown): number {
@@ -62,7 +72,7 @@ function lookupWindow(model: string, table: Record<string, number>): number | nu
  * then {@link KNOWN_CONTEXT_WINDOWS}, then the caller's default, then
  * {@link DEFAULT_CONTEXT_WINDOW}.
  */
-function resolveContextWindow(model: string | null, options?: ExtractOptions): number {
+export function resolveContextWindow(model: string | null, options?: ExtractOptions): number {
   if (model) {
     const configured = options?.contextWindows ? lookupWindow(model, options.contextWindows) : null;
     if (configured !== null) return configured;
@@ -77,8 +87,11 @@ function resolveContextWindow(model: string | null, options?: ExtractOptions): n
 interface AssistantLine {
   type: 'assistant';
   isSidechain?: boolean;
+  effort?: unknown;
   message?: {
     model?: unknown;
+    stop_reason?: unknown;
+    content?: unknown;
     usage?: {
       input_tokens?: unknown;
       output_tokens?: unknown;
@@ -124,12 +137,20 @@ function findLatestAssistantLine(content: string): AssistantLine | null {
 }
 
 /**
- * Pure core: derive a {@link Usage} snapshot from raw JSONL transcript text.
+ * Pure core: derive the full {@link TurnFacts} for the latest turn from raw
+ * JSONL transcript text.
  *
  * No I/O, so it is safe (and cheap) to unit-test with inline strings. Prefer
- * {@link extractUsage} when you have a path on disk.
+ * {@link extractTurnFacts} when you have a path on disk, or
+ * {@link extractUsageFromString} when the three usage fields are all you want.
+ *
+ * One pass over one line: the hook runs this on every tool use, so reading the
+ * axes for the recorder (CC-12) must not cost a second parse.
  */
-export function extractUsageFromString(content: string, options?: ExtractOptions): Usage {
+export function extractTurnFactsFromString(
+  content: string,
+  options?: ExtractOptions,
+): TurnFacts {
   const line = findLatestAssistantLine(content);
   if (!line) return { ...EMPTY };
 
@@ -153,8 +174,69 @@ export function extractUsageFromString(content: string, options?: ExtractOptions
   const window = resolveContextWindow(model, options);
   const contextPct = window > 0 ? clamp((totalInput / window) * 100, 0, 100) : 0;
 
+  const blocks: ContentBlock[] = Array.isArray(message.content)
+    ? (message.content as ContentBlock[])
+    : [];
+  const { shape, tool } = classifyBlocks(blocks);
+
+  return {
+    tokens,
+    contextPct,
+    model,
+    outputTokens: output,
+    effort: asEffort(line.effort),
+    shape,
+    tool,
+    endsTurn: message.stop_reason === 'end_turn',
+  };
+}
+
+/**
+ * Pure core: derive a {@link Usage} snapshot from raw JSONL transcript text.
+ *
+ * The narrow view of {@link extractTurnFactsFromString}, kept because the tier
+ * mapper (CC-2) reads exactly these three fields and nothing else.
+ */
+export function extractUsageFromString(content: string, options?: ExtractOptions): Usage {
+  const { tokens, contextPct, model } = extractTurnFactsFromString(content, options);
   return { tokens, contextPct, model };
 }
+
+/**
+ * Read a transcript file and return the full {@link TurnFacts} for the latest
+ * main-thread assistant turn.
+ *
+ * Like {@link extractUsage}, a missing or unreadable file yields the empty
+ * snapshot rather than throwing.
+ */
+export function extractTurnFacts(transcriptPath: string, options?: ExtractOptions): TurnFacts {
+  let content: string;
+  try {
+    content = readFileSync(transcriptPath, 'utf8');
+  } catch {
+    return { ...EMPTY };
+  }
+  return extractTurnFactsFromString(content, options);
+}
+
+/**
+ * Whether a turn carried any usable signal at all (CC-15).
+ *
+ * `extractUsage` returns its empty snapshot for two very different situations:
+ * a transcript we simply haven't caught up with yet, and a transcript whose
+ * *format we cannot read*. Claude Code hosted inside another editor is the real
+ * case — Cursor writes `{role, message:{content}}` with no `usage`, no `model`
+ * and no `stop_reason`, so there is nothing to extract no matter how the parser
+ * is written.
+ *
+ * Treating that as "tier 0" recorded 25,470 turns of pure silence across two
+ * sessions — 96% of all recorded history on one machine — and drove playback to
+ * silence rather than leaving it alone. A turn with no model *and* no tokens is
+ * not a quiet turn; it is a turn we failed to read, and the two must not be
+ * confused.
+ */
+export const isReadable = (usage: Usage): boolean =>
+  usage.model !== null || usage.tokens > 0;
 
 /**
  * Read a Claude Code transcript JSONL file and return the current {@link Usage}
@@ -169,11 +251,6 @@ export function extractUsageFromString(content: string, options?: ExtractOptions
  *   passes this to hooks as `transcript_path`).
  */
 export function extractUsage(transcriptPath: string, options?: ExtractOptions): Usage {
-  let content: string;
-  try {
-    content = readFileSync(transcriptPath, 'utf8');
-  } catch {
-    return { ...EMPTY };
-  }
-  return extractUsageFromString(content, options);
+  const { tokens, contextPct, model } = extractTurnFacts(transcriptPath, options);
+  return { tokens, contextPct, model };
 }

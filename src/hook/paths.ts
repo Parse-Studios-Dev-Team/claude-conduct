@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 /** All filesystem locations the hook and daemon share, derived from the project dir. */
 export interface ConductPaths {
@@ -12,10 +13,14 @@ export interface ConductPaths {
   commandPath: string;
   /** Daemon pidfile. */
   pidPath: string;
+  /** Liveness marker the hook touches every turn; the daemon's idle watchdog reads its mtime. */
+  heartbeatPath: string;
   /** Daemon stdout/stderr log. */
   logPath: string;
   /** CC-9 per-session timeline recordings, one `<session_id>.jsonl` per session. */
   recordingsDir: string;
+  /** CC-13 rendered pieces, one `<session_id>.wav` per session. */
+  rendersDir: string;
 }
 
 /**
@@ -24,6 +29,19 @@ export interface ConductPaths {
  */
 export function projectSlug(baseDir: string): string {
   return baseDir.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'default';
+}
+
+/**
+ * Where a **user-scope** install keeps this project's runtime files: the layout
+ * the installed hooks produce when they pass `CONDUCT_STATE_DIR=~/.claude/conduct`.
+ *
+ * Tools run from a plain shell don't inherit that env var, so they can't find
+ * the recordings by calling {@link resolvePaths} alone — it would point them at
+ * the project-local `.claude/` that a user-scope install never writes to. This
+ * gives them the other candidate to check.
+ */
+export function userRuntimeDir(baseDir: string): string {
+  return join(homedir(), '.claude', 'conduct', projectSlug(baseDir));
 }
 
 /**
@@ -50,7 +68,9 @@ export function resolvePaths(baseDir: string): ConductPaths {
     statePath: join(runtimeDir, 'conduct-state.json'),
     commandPath: join(runtimeDir, 'conduct-command.json'),
     pidPath: join(runtimeDir, 'conduct.pid'),
+    heartbeatPath: join(runtimeDir, 'conduct.heartbeat'),
     logPath: join(runtimeDir, 'conduct-daemon.log'),
     recordingsDir: join(runtimeDir, 'recordings'),
+    rendersDir: join(runtimeDir, 'renders'),
   };
 }

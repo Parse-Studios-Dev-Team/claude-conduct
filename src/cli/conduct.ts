@@ -6,6 +6,8 @@ import { newestTranscript } from '../hook/transcript';
 import { sendCommand } from '../daemon/client';
 import { parseCommand } from '../daemon/command';
 import { extractUsage } from '../extractUsage';
+import { renderSessionToFile, pruneRenders } from '../renderStore';
+import { listRecordings } from '../recorder';
 import { mapToTier } from '../mapToTier';
 import type { Tier } from '../types';
 
@@ -36,6 +38,11 @@ function currentTier(paths: ConductPaths): Tier | null {
   }
 }
 
+/** Newest recording in the directory, or `null` when there are none. */
+function newestRecording(recordingsDir: string): string | null {
+  return listRecordings(recordingsDir)[0]?.sessionId ?? null;
+}
+
 function helpText(): string {
   return [
     'Usage: /conduct <command>',
@@ -46,6 +53,7 @@ function helpText(): string {
     '  mute             silence output (persists until unmute)',
     '  unmute           resume output, starting playback if it is not running',
     '  volume <n>       set volume (0–1, or a percent like 80)',
+    '  render [session] render a finished session as a piece (newest if omitted)',
   ].join('\n');
 }
 
@@ -172,6 +180,38 @@ export function runConduct(argv: string[], baseDir: string, deps: CliDeps = {}):
       if (!config.mute) sendCommand(paths.commandPath, { volume: value }, now());
       const suffix = config.mute ? ' (muted — applies on unmute)' : '';
       return { output: `Volume set to ${value}${suffix}.`, exitCode: 0 };
+    }
+
+    case 'render': {
+      // CC-13 on demand: render a session that already ended, or the newest
+      // recording if none is named. Synchronous here on purpose — a CLI the user
+      // typed *should* block and then tell them where the file went, which is the
+      // opposite of the hook's constraint.
+      const config = loadConfig(paths.configPath);
+      const requested = argv[1];
+      const target = requested ?? newestRecording(paths.recordingsDir);
+      if (!target) {
+        return { output: `No recordings found under ${paths.recordingsDir}.`, exitCode: 1 };
+      }
+
+      const outcome = renderSessionToFile(paths.recordingsDir, paths.rendersDir, target, {
+        seconds: config.playback.seconds,
+        projectDir: baseDir,
+      });
+      if (!outcome) {
+        return {
+          output: `Nothing renderable for "${target}" — no recorded turns, and no transcript to fall back on.`,
+          exitCode: 1,
+        };
+      }
+      pruneRenders(paths.rendersDir, config.playback.keep);
+      return {
+        output: [
+          `Rendered ${outcome.turns} turns (${outcome.source}) → ${outcome.path}`,
+          `${(outcome.durationMs / 1000).toFixed(1)}s`,
+        ].join('  '),
+        exitCode: 0,
+      };
     }
 
     case 'help':

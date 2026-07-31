@@ -10,6 +10,7 @@ import {
 import { dirname, basename } from 'node:path';
 import { Conductor, type ConductorOptions } from './conductor';
 import { parseCommand } from './command';
+import { heartbeatAgeMs } from '../hook/heartbeat';
 import type { Sink } from '../audio/sink';
 
 export interface DaemonOptions extends ConductorOptions {
@@ -19,6 +20,18 @@ export interface DaemonOptions extends ConductorOptions {
   pidPath?: string;
   /** Drive rendering on an internal timer. Default `true`; tests pass `false` and call {@link ConductDaemon.renderBlock}. */
   autoRender?: boolean;
+  /** Liveness marker the hook touches each turn. Required for the idle watchdog. */
+  heartbeatPath?: string;
+  /** Exit after this long with no heartbeat. `0`/unset disables the watchdog. */
+  idleTimeoutMs?: number;
+  /** Called when the watchdog expires — the entrypoint shuts the process down. */
+  onIdle?: () => void;
+  /** Poll the watchdog on a timer. Default `true`; tests pass `false` and call {@link ConductDaemon.isIdle}. */
+  autoWatchdog?: boolean;
+  /** Back up `fs.watch` with a poll. Default `true`; tests pass `false` and call {@link ConductDaemon.refresh}. */
+  autoPoll?: boolean;
+  /** How often the poll backstop re-reads the command file. Default 1000ms. */
+  pollMs?: number;
 }
 
 /**
@@ -31,6 +44,14 @@ export class ConductDaemon {
   private readonly conductor: Conductor;
   private readonly opts: DaemonOptions;
   private watcher: FSWatcher | undefined;
+  private idleTimer: ReturnType<typeof setInterval> | undefined;
+  /** Pending CC-11 fall-to-silence after a cadence. */
+  private cadenceTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Poll backstop for dropped `fs.watch` events. */
+  private pollTimer: ReturnType<typeof setInterval> | undefined;
+  /** Raw text of the last command applied, so repeats are ignored. */
+  private lastCommandText: string | undefined;
+  private startedAt = 0;
   private pumping = false;
   private running = false;
 
@@ -57,6 +78,7 @@ export class ConductDaemon {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.startedAt = Date.now();
 
     try {
       mkdirSync(dirname(this.opts.commandPath), { recursive: true });
@@ -76,6 +98,16 @@ export class ConductDaemon {
       /* watching is best-effort; SessionStart can still push an initial tier */
     }
 
+    // `fs.watch` is not a guarantee. On macOS it coalesces and outright drops
+    // events under load — observed here as a command that never arrived — and a
+    // dropped command means the music silently stops responding for the rest of
+    // the session. A slow poll backstops it: the watcher still provides the
+    // low-latency path, and this bounds the worst case to `pollMs`.
+    if (this.opts.autoPoll !== false) {
+      this.pollTimer = setInterval(() => this.refresh(), this.opts.pollMs ?? 1_000);
+      this.pollTimer.unref?.();
+    }
+
     if (this.opts.pidPath) {
       try {
         writeFileSync(this.opts.pidPath, `${process.pid}\n`);
@@ -85,6 +117,44 @@ export class ConductDaemon {
     }
 
     if (this.opts.autoRender !== false) this.startPump();
+    if (this.opts.autoWatchdog !== false) this.startWatchdog();
+  }
+
+  /**
+   * Poll the heartbeat and fire `onIdle` once it goes stale. The check period is
+   * a quarter of the timeout (clamped to 1–30s) so expiry is detected promptly
+   * without spinning: the watchdog exists to bound how long an orphaned daemon
+   * can play, not to stop it on the exact second.
+   */
+  private startWatchdog(): void {
+    const timeout = this.opts.idleTimeoutMs ?? 0;
+    if (timeout <= 0 || !this.opts.heartbeatPath) return;
+
+    const period = Math.max(1_000, Math.min(30_000, Math.floor(timeout / 4)));
+    this.idleTimer = setInterval(() => {
+      if (this.isIdle()) this.opts.onIdle?.();
+    }, period);
+    // Don't hold the event loop open on the watchdog alone — the render pump is
+    // what should keep this process alive.
+    this.idleTimer.unref?.();
+  }
+
+  /**
+   * Has the owning session stopped heartbeating for longer than the timeout?
+   *
+   * A missing heartbeat falls back to the daemon's own start time rather than
+   * counting as infinitely old, and a heartbeat older than our start time is
+   * treated as our start time. Both cases are the same situation — a daemon
+   * launched by `/conduct start` before the session's next hook fires — and both
+   * must give it a full timeout window to see a fresh stamp.
+   */
+  isIdle(now: number = Date.now()): boolean {
+    const timeout = this.opts.idleTimeoutMs ?? 0;
+    if (timeout <= 0 || !this.opts.heartbeatPath) return false;
+
+    const age = heartbeatAgeMs(this.opts.heartbeatPath, now);
+    const lastSeen = age === null ? this.startedAt : Math.max(now - age, this.startedAt);
+    return now - lastSeen >= timeout;
   }
 
   /**
@@ -135,16 +205,62 @@ export class ConductDaemon {
     this.conductor.renderBlock();
   }
 
-  /** Re-read the command file and apply its tier and/or volume, if valid. */
+  /**
+   * Re-read the command file and apply its tier and/or volume, if valid.
+   *
+   * Idempotent by content: identical text is ignored. Both callers can fire more
+   * than once for a single write — `fs.watch` regularly reports a rename twice,
+   * and the poll re-reads unconditionally — and re-applying would restart a
+   * pending cadence's timer every time, so the fall to silence would never
+   * actually arrive. Every command carries a `ts`, so a genuine repeat still
+   * differs textually.
+   */
   refresh(): void {
     try {
-      const command = parseCommand(readFileSync(this.opts.commandPath, 'utf8'));
+      const text = readFileSync(this.opts.commandPath, 'utf8');
+      if (text === this.lastCommandText) return;
+      this.lastCommandText = text;
+
+      const command = parseCommand(text);
       if (!command) return;
+
+      // Any new command supersedes a pending cadence — if Claude started working
+      // again inside the hold, the music must stay up rather than fall silent
+      // underneath the next turn.
+      this.clearCadence();
+
       if (command.tier) this.conductor.setTier(command.tier);
       if (command.volume !== undefined) this.conductor.setVolume(command.volume);
+      if (command.holdMs !== undefined && command.tier) this.scheduleSilence(command.holdMs);
     } catch {
       /* file may not exist yet */
     }
+  }
+
+  /**
+   * CC-11: fall to silence after a cadence has been heard.
+   *
+   * `unref` so a pending cadence can never be the thing keeping the process
+   * alive — the render pump decides the daemon's lifetime, not this.
+   */
+  private scheduleSilence(holdMs: number): void {
+    this.cadenceTimer = setTimeout(() => {
+      this.cadenceTimer = undefined;
+      if (this.running) this.conductor.setTier({ ensembleSize: 0, richness: 0 });
+    }, holdMs);
+    this.cadenceTimer.unref?.();
+  }
+
+  private clearCadence(): void {
+    if (this.cadenceTimer) {
+      clearTimeout(this.cadenceTimer);
+      this.cadenceTimer = undefined;
+    }
+  }
+
+  /** Whether a cadence is waiting to fall to silence — for tests. */
+  get cadencePending(): boolean {
+    return this.cadenceTimer !== undefined;
   }
 
   /** Idempotent clean shutdown: stop rendering/watching, release the sink, remove the pidfile. */
@@ -152,6 +268,18 @@ export class ConductDaemon {
     if (!this.running) return;
     this.running = false;
     this.pumping = false; // the pump loop checks these flags and exits
+
+    if (this.idleTimer) {
+      clearInterval(this.idleTimer);
+      this.idleTimer = undefined;
+    }
+
+    this.clearCadence();
+
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = undefined;
+    }
 
     if (this.watcher) {
       try {

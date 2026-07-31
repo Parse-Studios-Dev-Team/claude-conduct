@@ -1,14 +1,26 @@
-import { extractUsage } from '../extractUsage';
+import { extractTurnFacts, isReadable } from '../extractUsage';
 import { mapToTier } from '../mapToTier';
-import { recordTier, clearSession } from '../state';
-import { sendTier } from '../daemon/client';
+import { recordTier, clearSession, noteUnreadable, unreadableCount } from '../state';
+import { sendTier, sendCadence } from '../daemon/client';
 import { startDaemon, stopDaemon } from './daemonControl';
+import { touchHeartbeat, clearHeartbeat } from './heartbeat';
 import { recordTurn, finalizeRecording, pruneRecordings } from '../recorder';
+import { liveTier, phaseFor } from '../liveMode';
+import { startRender } from './renderControl';
+import { pendingRenders } from '../renderStore';
 import type { Tier } from '../types';
 import type { ConductConfig } from './config';
 import type { ConductPaths } from './paths';
 
 const SILENT_TIER: Tier = { ensembleSize: 0, richness: 0 };
+
+/** CC-13: does this session play audio as you work? */
+const liveEnabled = (config: ConductConfig): boolean =>
+  config.mode === 'live' || config.mode === 'both';
+
+/** CC-13: does this session leave a rendered piece behind? */
+const playbackEnabled = (config: ConductConfig): boolean =>
+  config.mode === 'playback' || config.mode === 'both';
 
 /** The subset of a Claude Code hook payload we read (all optional; parsed defensively). */
 export interface HookInput {
@@ -22,31 +34,45 @@ export interface HookInput {
 
 /** Injectable collaborators — the defaults are the real modules; tests pass stubs. */
 export interface HandlerDeps {
-  extractUsage: typeof extractUsage;
+  extractTurnFacts: typeof extractTurnFacts;
   recordTier: typeof recordTier;
   clearSession: typeof clearSession;
+  noteUnreadable: typeof noteUnreadable;
+  unreadableCount: typeof unreadableCount;
   sendTier: typeof sendTier;
+  sendCadence: typeof sendCadence;
   startDaemon: typeof startDaemon;
   stopDaemon: typeof stopDaemon;
+  touchHeartbeat: typeof touchHeartbeat;
+  clearHeartbeat: typeof clearHeartbeat;
   recordTurn: typeof recordTurn;
   finalizeRecording: typeof finalizeRecording;
   pruneRecordings: typeof pruneRecordings;
+  startRender: typeof startRender;
+  pendingRenders: typeof pendingRenders;
 }
 
 export const realDeps: HandlerDeps = {
-  extractUsage,
+  extractTurnFacts,
   recordTier,
   clearSession,
+  noteUnreadable,
+  unreadableCount,
   sendTier,
+  sendCadence,
   startDaemon,
   stopDaemon,
+  touchHeartbeat,
+  clearHeartbeat,
   recordTurn,
   finalizeRecording,
   pruneRecordings,
+  startRender,
+  pendingRenders,
 };
 
 export interface HandleResult {
-  action: 'start' | 'stop' | 'update' | 'noop';
+  action: 'start' | 'stop' | 'update' | 'noop' | 'unreadable' | 'cadence';
   /** The tier sent to the daemon this event, or `null` if nothing was emitted. */
   emitted: Tier | null;
 }
@@ -58,9 +84,9 @@ export interface HandleResult {
  *   starts when you ask for it with `/conduct start` (or `unmute`). Tier updates
  *   still accumulate in the command file while it's down, so starting mid-session
  *   picks up at the right layer instead of from silence.
- * - `SessionEnd`   → stop the daemon and drop this session's state.
+ * - `SessionEnd`   → stop the daemon, clear the heartbeat, drop this session's state.
  * - `PostToolUse` / `Stop` (anything with a transcript) →
- *   `extractUsage → mapToTier → recordTier` (dedupe) → `sendTier` on change.
+ *   `extractTurnFacts → mapToTier → recordTier` (dedupe) → `sendTier` on change.
  *
  * Pure orchestration over injected deps. It does not catch — the entrypoint
  * wraps it so a failure can never block the Claude Code turn — but nothing here
@@ -73,6 +99,11 @@ export function handleEvent(
   paths: ConductPaths,
   deps: HandlerDeps = realDeps,
 ): HandleResult {
+  // Any event at all proves Claude Code is still alive, so stamp the marker
+  // before branching — including on events we otherwise ignore. `SessionEnd` is
+  // the one exception: it clears the marker instead.
+  if (input.hook_event_name !== 'SessionEnd') deps.touchHeartbeat(paths.heartbeatPath);
+
   switch (input.hook_event_name) {
     case 'SessionStart':
       // Deliberately does not start the daemon — see the note above.
@@ -80,11 +111,28 @@ export function handleEvent(
 
     case 'SessionEnd':
       deps.stopDaemon(paths);
+      deps.clearHeartbeat(paths.heartbeatPath);
       if (input.session_id) {
+        // Read the unreadable tally *before* clearing the session that holds it.
+        const unreadable = config.recordings.enabled
+          ? deps.unreadableCount(paths.statePath, input.session_id)
+          : 0;
         deps.clearSession(paths.statePath, input.session_id);
         if (config.recordings.enabled) {
-          deps.finalizeRecording(paths.recordingsDir, input.session_id);
+          deps.finalizeRecording(paths.recordingsDir, input.session_id, unreadable);
           deps.pruneRecordings(paths.recordingsDir, config.recordings.keep);
+        }
+
+        // CC-13: leave a piece behind. Spawned detached — rendering 90 seconds
+        // of audio is seconds of CPU, and `SessionEnd` has to return now.
+        if (playbackEnabled(config)) {
+          const pending = config.playback.sweepStale
+            ? deps.pendingRenders(paths.recordingsDir, paths.rendersDir)
+            : [];
+          // The just-ended session first, then any stragglers whose `SessionEnd`
+          // never fired (window closed, process killed).
+          const ids = [input.session_id, ...pending.filter((id) => id !== input.session_id)];
+          deps.startRender(paths, config, ids);
         }
       }
       return { action: 'stop', emitted: null };
@@ -94,19 +142,53 @@ export function handleEvent(
       if (!input.transcript_path || !input.session_id) {
         return { action: 'noop', emitted: null };
       }
-      const usage = deps.extractUsage(input.transcript_path, {
+      // One read of the transcript yields both the tier inputs and the axes the
+      // recording stores (CC-12); the mapper still sees only the usage fields.
+      const facts = deps.extractTurnFacts(input.transcript_path, {
         contextWindows: config.contextWindows,
       });
-      const mapped = mapToTier(usage, config.tier);
-      const tier = config.mute ? SILENT_TIER : mapped;
 
-      // Record the *mapped* tier, not the muted one: a recording describes what
-      // the session would sound like, so muting playback must not flatten the
-      // timeline into silence. Recording is also independent of the dedupe —
-      // every turn gets a line, because the playground re-scores from the raw
-      // axes and needs them all, not just the turns that changed tier.
+      // A turn we could not read is not a quiet turn (CC-15). Recording it as
+      // tier 0 produced 25,470 lines of pure silence across two sessions on a
+      // host whose transcript format carries no usage at all, and drove playback
+      // to silence instead of leaving it where it was. Count it and stand down.
+      if (!isReadable(facts)) {
+        deps.noteUnreadable(paths.statePath, input.session_id);
+        return { action: 'unreadable', emitted: null };
+      }
+
+      // The *recorded* tier is always the gradient one, whatever live mode is
+      // doing: a recording describes the session's shape for CC-10 to render,
+      // and it must not inherit live mode's deliberate flattening any more than
+      // it inherits muting.
+      const mapped = mapToTier(facts, config.tier);
       if (config.recordings.enabled) {
-        deps.recordTurn(paths.recordingsDir, input.session_id, usage, mapped);
+        deps.recordTurn(paths.recordingsDir, input.session_id, facts, mapped);
+      }
+
+      // In playback-only mode the recording above is the entire job: nothing is
+      // sent to the daemon, so the session stays silent and still renders.
+      if (!liveEnabled(config)) {
+        return { action: 'noop', emitted: null };
+      }
+
+      const phase = phaseFor(input.hook_event_name, facts.endsTurn);
+      const presence = config.live.mode === 'presence';
+      const played = presence ? liveTier(phase, facts, config.live) : mapped;
+      const tier = config.mute ? SILENT_TIER : played;
+
+      // A cadence always goes out, even when it matches the last tier: what
+      // makes it a cadence is the fall to silence that follows, and the dedupe
+      // only knows about the tier itself. Recording silence as the last-emitted
+      // tier is what lets the *next* working turn re-emit and lift the music
+      // back up — otherwise the daemon would sit silent for the rest of the
+      // session, having gone quiet on a timer the state layer never saw.
+      if (presence && phase === 'cadence') {
+        if (!config.mute) {
+          deps.sendCadence(paths.commandPath, tier, config.live.cadenceHoldMs);
+        }
+        deps.recordTier(paths.statePath, input.session_id, SILENT_TIER);
+        return { action: 'cadence', emitted: config.mute ? null : tier };
       }
 
       const { emit } = deps.recordTier(paths.statePath, input.session_id, tier);

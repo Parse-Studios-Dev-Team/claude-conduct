@@ -40,6 +40,8 @@ export class PlaygroundEngine {
   private voices: VoiceSpec[];
   private loopMs: number;
   private panSeed: number;
+  /** Context time the sources were started at — the origin for {@link loopTurn}. */
+  private originSec = 0;
 
   constructor(options: EngineOptions = {}) {
     this.context = new AudioContext();
@@ -90,6 +92,7 @@ export class PlaygroundEngine {
 
   private startSources(): void {
     const when = this.context.currentTime;
+    this.originSec = when;
     for (const stem of this.stems) {
       try {
         stem.source.start(when);
@@ -151,6 +154,23 @@ export class PlaygroundEngine {
   /** Audible gain per stem — drives the layer meters. */
   gains(): number[] {
     return this.stems.map((stem) => stem.gain.gain.value);
+  }
+
+  /**
+   * Position through the shared stem loop, `0..1`. Every stem is the same length
+   * and started at the same instant, so one phase describes all of them — which
+   * is what lets the score readout say where each drifting voice has got to.
+   */
+  loopTurn(): number {
+    const loopSeconds = this.loopMs / 1000;
+    if (!(loopSeconds > 0)) return 0;
+    const elapsed = this.context.currentTime - this.originSec;
+    return ((elapsed % loopSeconds) + loopSeconds) % loopSeconds / loopSeconds;
+  }
+
+  /** Loop length in ms — the score panel labels its progress bar with it. */
+  get loopLengthMs(): number {
+    return this.loopMs;
   }
 
   setMasterGain(value: number): void {

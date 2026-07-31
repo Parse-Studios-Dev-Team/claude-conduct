@@ -23,7 +23,16 @@ function withProject(fn: (baseDir: string) => void): void {
 }
 
 // Deterministic clock + a fixed "current session" transcript (large.jsonl → E5 R1).
-const deps: CliDeps = { now: () => 1000, findTranscript: () => fixture('large.jsonl') };
+// The process controls are stubbed out here too: these tests are about config and
+// the command file, but `unmute` (and `start`) launch playback as a side effect,
+// which would otherwise spawn a real, audible daemon that outlives the test run.
+// `playbackDeps` below spreads these and re-stubs them with counters.
+const deps: CliDeps = {
+  now: () => 1000,
+  findTranscript: () => fixture('large.jsonl'),
+  startDaemon: () => {},
+  stopDaemon: () => {},
+};
 const cfgOf = (baseDir: string) => loadConfig(resolvePaths(baseDir).configPath);
 const commandOf = (baseDir: string) => parseCommand(readFileSync(resolvePaths(baseDir).commandPath, 'utf8'));
 

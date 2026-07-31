@@ -1,8 +1,10 @@
 {
+  "mode": "live",
   "mute": false,
   "volume": 0.8,
   "silent": false,
   "crossfadeMs": 1500,
+  "idleTimeoutMs": 900000,
   "stemsDir": "",
   "tier": {
     "tokenThresholds": [500, 1500, 3000, 6000, 12000],
@@ -10,5 +12,17 @@
     "richnessThresholds": [50, 85],
     "modelBump": { "claude-opus": 1 }
   },
-  "contextWindows": {}
+  "contextWindows": {},
+  "live": {
+    "mode": "presence",
+    "levels": [2, 3, 5],
+    "steps": [1500, 12000],
+    "cadenceHoldMs": 2500
+  },
+  "playback": {
+    "seconds": 90,
+    "sweepStale": true,
+    "keep": 20
+  },
+  "recordings": { "enabled": true, "keep": 20 }
 }
