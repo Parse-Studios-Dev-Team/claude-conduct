@@ -18,7 +18,7 @@ import { startDaemon, stopDaemon, isDaemonRunning } from '../src/hook/daemonCont
 import { touchHeartbeat, clearHeartbeat, heartbeatAgeMs } from '../src/hook/heartbeat';
 import { handleEvent, type HandlerDeps, type HookInput } from '../src/hook/handler';
 import { extractTurnFacts } from '../src/extractUsage';
-import { recordTier, clearSession, readState } from '../src/state';
+import { recordTier, clearSession, noteUnreadable, unreadableCount, readState } from '../src/state';
 import { sendTier } from '../src/daemon/client';
 import { mapToTier } from '../src/mapToTier';
 import {
@@ -132,6 +132,8 @@ function stubDeps(usage: Usage, emit: boolean): { deps: HandlerDeps; calls: Call
       return { ...usage, outputTokens: usage.tokens, effort: null, shape: 'text', tool: null, endsTurn: false };
     },
     recordTier: (_sp, _sid, tier) => ({ emit, tier, previous: null }),
+    noteUnreadable: () => 1,
+    unreadableCount: () => 0,
     clearSession: (_sp, sid) => {
       calls.clearSession.push(sid);
     },
@@ -243,6 +245,8 @@ test('end-to-end wiring: a real transcript drives a real command + state file, a
     const deps: HandlerDeps = {
       extractTurnFacts,
       recordTier,
+      noteUnreadable,
+      unreadableCount,
       clearSession,
       sendTier,
       startDaemon: () => {},

@@ -2,8 +2,11 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Tier } from './types';
 
-/** Bumped when the on-disk shape changes; an older/newer file is discarded, not migrated. */
-export const STATE_VERSION = 1;
+/**
+ * Bumped when the on-disk shape changes; an older/newer file is discarded, not
+ * migrated. **v2 (CC-15)** added the `unreadable` counter.
+ */
+export const STATE_VERSION = 2;
 
 /** Default location, relative to the project dir (git-ignored). */
 export const DEFAULT_STATE_PATH = '.claude/conduct-state.json';
@@ -19,6 +22,14 @@ export interface SessionState {
 export interface ConductState {
   version: number;
   sessions: Record<string, SessionState>;
+  /**
+   * Per-session count of turns whose transcript we could not read (CC-15).
+   *
+   * Kept beside `sessions` rather than inside a {@link SessionState} because a
+   * session can accumulate these having never produced a readable tier at all —
+   * which is exactly the failure worth reporting, and it has no tier to hang off.
+   */
+  unreadable: Record<string, number>;
 }
 
 /** Outcome of {@link recordTier}. */
@@ -44,7 +55,7 @@ export interface RecordOptions {
 }
 
 function emptyState(): ConductState {
-  return { version: STATE_VERSION, sessions: {} };
+  return { version: STATE_VERSION, sessions: {}, unreadable: {} };
 }
 
 function isSessionState(value: unknown): value is SessionState {
@@ -106,7 +117,18 @@ export function readState(statePath: string): ConductState {
     for (const [id, session] of Object.entries((parsed as ConductState).sessions)) {
       if (isSessionState(session)) sessions[id] = session;
     }
-    return { version: STATE_VERSION, sessions };
+
+    const unreadable: Record<string, number> = {};
+    const rawUnreadable = (parsed as ConductState).unreadable;
+    if (rawUnreadable && typeof rawUnreadable === 'object') {
+      for (const [id, count] of Object.entries(rawUnreadable)) {
+        if (typeof count === 'number' && Number.isFinite(count) && count > 0) {
+          unreadable[id] = count;
+        }
+      }
+    }
+
+    return { version: STATE_VERSION, sessions, unreadable };
   } catch {
     return emptyState();
   }
@@ -186,13 +208,40 @@ export function recordTier(
 }
 
 /**
+ * Count one turn whose transcript could not be read (CC-15), returning the
+ * session's running total.
+ *
+ * Cheaper than what it replaces: these turns used to append a full line to the
+ * recording *and* go through `recordTier`, so counting them is strictly less
+ * I/O than recording them as silence was. Never throws.
+ */
+export function noteUnreadable(statePath: string, sessionId: string): number {
+  const state = readState(statePath);
+  const next = (state.unreadable[sessionId] ?? 0) + 1;
+  state.unreadable[sessionId] = next;
+  try {
+    writeState(statePath, state);
+  } catch {
+    /* best-effort; the count is diagnostic, never load-bearing */
+  }
+  return next;
+}
+
+/** How many unreadable turns this session has accumulated. */
+export function unreadableCount(statePath: string, sessionId: string): number {
+  return readState(statePath).unreadable[sessionId] ?? 0;
+}
+
+/**
  * Remove a session's state — call on `SessionEnd`. No-op when the session is
  * absent; never throws.
  */
 export function clearSession(statePath: string, sessionId: string): void {
   const state = readState(statePath);
-  if (state.sessions[sessionId]) {
+  const had = state.sessions[sessionId] !== undefined || state.unreadable[sessionId] !== undefined;
+  if (had) {
     delete state.sessions[sessionId];
+    delete state.unreadable[sessionId];
     try {
       writeState(statePath, state);
     } catch {

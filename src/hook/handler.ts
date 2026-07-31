@@ -1,6 +1,6 @@
-import { extractTurnFacts } from '../extractUsage';
+import { extractTurnFacts, isReadable } from '../extractUsage';
 import { mapToTier } from '../mapToTier';
-import { recordTier, clearSession } from '../state';
+import { recordTier, clearSession, noteUnreadable, unreadableCount } from '../state';
 import { sendTier } from '../daemon/client';
 import { startDaemon, stopDaemon } from './daemonControl';
 import { touchHeartbeat, clearHeartbeat } from './heartbeat';
@@ -26,6 +26,8 @@ export interface HandlerDeps {
   extractTurnFacts: typeof extractTurnFacts;
   recordTier: typeof recordTier;
   clearSession: typeof clearSession;
+  noteUnreadable: typeof noteUnreadable;
+  unreadableCount: typeof unreadableCount;
   sendTier: typeof sendTier;
   startDaemon: typeof startDaemon;
   stopDaemon: typeof stopDaemon;
@@ -40,6 +42,8 @@ export const realDeps: HandlerDeps = {
   extractTurnFacts,
   recordTier,
   clearSession,
+  noteUnreadable,
+  unreadableCount,
   sendTier,
   startDaemon,
   stopDaemon,
@@ -51,7 +55,7 @@ export const realDeps: HandlerDeps = {
 };
 
 export interface HandleResult {
-  action: 'start' | 'stop' | 'update' | 'noop';
+  action: 'start' | 'stop' | 'update' | 'noop' | 'unreadable';
   /** The tier sent to the daemon this event, or `null` if nothing was emitted. */
   emitted: Tier | null;
 }
@@ -92,9 +96,13 @@ export function handleEvent(
       deps.stopDaemon(paths);
       deps.clearHeartbeat(paths.heartbeatPath);
       if (input.session_id) {
+        // Read the unreadable tally *before* clearing the session that holds it.
+        const unreadable = config.recordings.enabled
+          ? deps.unreadableCount(paths.statePath, input.session_id)
+          : 0;
         deps.clearSession(paths.statePath, input.session_id);
         if (config.recordings.enabled) {
-          deps.finalizeRecording(paths.recordingsDir, input.session_id);
+          deps.finalizeRecording(paths.recordingsDir, input.session_id, unreadable);
           deps.pruneRecordings(paths.recordingsDir, config.recordings.keep);
         }
       }
@@ -110,6 +118,16 @@ export function handleEvent(
       const facts = deps.extractTurnFacts(input.transcript_path, {
         contextWindows: config.contextWindows,
       });
+
+      // A turn we could not read is not a quiet turn (CC-15). Recording it as
+      // tier 0 produced 25,470 lines of pure silence across two sessions on a
+      // host whose transcript format carries no usage at all, and drove playback
+      // to silence instead of leaving it where it was. Count it and stand down.
+      if (!isReadable(facts)) {
+        deps.noteUnreadable(paths.statePath, input.session_id);
+        return { action: 'unreadable', emitted: null };
+      }
+
       const mapped = mapToTier(facts, config.tier);
       const tier = config.mute ? SILENT_TIER : mapped;
 
