@@ -236,3 +236,88 @@ test('setCrossfadeMs retunes the ramp rate without disturbing current gains', ()
   assert.equal(mixer.getGains()[0], midGain, 'the gain itself must not jump — that would click');
   assert.ok(mixer.gainStepPerFrame > 1 / 1_000, 'but the ramp is now faster');
 });
+
+// --- CC-10: real-time weighting ---------------------------------------------
+
+const timed = (at: number, over: Partial<TurnSignals> = {}): TurnSignals => ({
+  tokens: 1000,
+  contextPct: 10,
+  model: 'claude-opus-5',
+  effort: 'high',
+  shape: 'text',
+  tool: null,
+  endsTurn: false,
+  at,
+  ...over,
+});
+
+test('a span you spent longer in gets more of the piece', () => {
+  const base = 1_000_000;
+  // Four turns 10s apart, then four 200s apart: the same number of turns over
+  // twenty times the wall clock.
+  const turns: TurnSignals[] = [];
+  let t = base;
+  for (let i = 0; i < 4; i++) turns.push(timed((t += 10_000)));
+  for (let i = 0; i < 4; i++) turns.push(timed((t += 200_000)));
+
+  const moments = scoreSession(turns, { moments: 2, totalMs: 60_000 });
+  assert.equal(moments.length, 2);
+  assert.ok(
+    moments[1]!.durationMs > moments[0]!.durationMs * 1.5,
+    `slow span should be much longer, got ${moments[0]!.durationMs} vs ${moments[1]!.durationMs}`,
+  );
+});
+
+test('timeWeight 0 restores even weighting', () => {
+  const base = 1_000_000;
+  const turns: TurnSignals[] = [];
+  let t = base;
+  for (let i = 0; i < 4; i++) turns.push(timed((t += 10_000)));
+  for (let i = 0; i < 4; i++) turns.push(timed((t += 200_000)));
+
+  const moments = scoreSession(turns, { moments: 2, totalMs: 60_000, timeWeight: 0 });
+  assert.ok(
+    Math.abs(moments[0]!.durationMs - moments[1]!.durationMs) < 1,
+    'identical shape mix and no time weighting means identical spans',
+  );
+});
+
+test('one overnight gap does not swallow the whole piece', () => {
+  const base = 1_000_000;
+  const turns: TurnSignals[] = [];
+  let t = base;
+  for (let i = 0; i < 4; i++) turns.push(timed((t += 10_000)));
+  // Went to lunch. Then four normal turns.
+  turns.push(timed((t += 8 * 60 * 60 * 1000)));
+  for (let i = 0; i < 3; i++) turns.push(timed((t += 10_000)));
+
+  const moments = scoreSession(turns, { moments: 2, totalMs: 60_000 });
+  const ratio = moments[1]!.durationMs / moments[0]!.durationMs;
+  assert.ok(ratio < 6, `the break is clamped, not honoured literally (ratio ${ratio})`);
+  assert.ok(moments[0]!.durationMs > 1_000, 'the other span is still audible');
+});
+
+test('turns with no timestamps score exactly as before', () => {
+  const untimed: TurnSignals[] = Array.from({ length: 8 }, () => ({
+    tokens: 1000,
+    contextPct: 10,
+    model: 'claude-opus-5',
+    effort: 'high' as const,
+    shape: 'text' as const,
+    tool: null,
+    endsTurn: false,
+  }));
+  const moments = scoreSession(untimed, { moments: 2, totalMs: 60_000 });
+  assert.ok(Math.abs(moments[0]!.durationMs - moments[1]!.durationMs) < 1);
+});
+
+test('the piece still totals the requested length', () => {
+  const base = 1_000_000;
+  let t = base;
+  const turns = Array.from({ length: 20 }, (_, i) =>
+    timed((t += (i % 5) * 30_000 + 5_000), { shape: (['think', 'tool', 'text'] as const)[i % 3] }),
+  );
+  const moments = scoreSession(turns, { moments: 6, totalMs: 90_000 });
+  const total = moments.reduce((sum, m) => sum + m.durationMs, 0);
+  assert.ok(Math.abs(total - 90_000) < 1, `expected ~90000ms, got ${total}`);
+});

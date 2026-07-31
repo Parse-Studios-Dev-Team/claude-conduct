@@ -35,6 +35,12 @@ export interface TurnSignals {
   tool: ToolKind | null;
   /** `stop_reason === 'end_turn'` — Claude handed control back here. */
   endsTurn: boolean;
+  /**
+   * Epoch ms the turn happened, when known. Drives real-time weighting: without
+   * it every turn is treated as taking the same amount of wall clock, so a
+   * twenty-minute pause reads exactly like a fast one.
+   */
+  at?: number;
 }
 
 /** One rendered span of the piece: a tier held for a duration, then crossfaded. */
@@ -55,11 +61,31 @@ export interface ScoreOptions {
   moments?: number;
   /** Total piece length. Default 90s — a 6-hour session and a 6-minute one both land here. */
   totalMs?: number;
+  /**
+   * How much a span's real elapsed time influences its length, `0..1`.
+   *
+   * `0` is the old behaviour: every turn takes the same share of the piece, so a
+   * session's pauses vanish and a long deliberation sounds like a quick reply.
+   * `1` would let wall clock alone decide, which hands most of the piece to
+   * whatever gap you happened to leave it running through. The default splits
+   * the difference — the session's real rhythm shows without dominating.
+   */
+  timeWeight?: number;
+  /**
+   * Longest gap between turns that still counts as elapsed time, in ms.
+   *
+   * Anything longer is a break, not a session: you went to lunch and left the
+   * window open. Without a clamp a single overnight gap consumes the entire
+   * piece and everything else is compressed to nothing.
+   */
+  maxGapMs?: number;
 }
 
 export const DEFAULT_SCORE_OPTIONS: Required<ScoreOptions> = {
   moments: 36,
   totalMs: 90_000,
+  timeWeight: 0.5,
+  maxGapMs: 5 * 60_000,
 };
 
 /** Extension-stem gains per effort level: triad → add the 9th → open it right up. */
@@ -140,6 +166,35 @@ function percentile(value: number, sorted: number[]): number {
   return (lo + hi) / 2 / n;
 }
 
+/**
+ * Wall-clock time covered by `turns[from..to)`, summing per-turn gaps with each
+ * one clamped to `maxGapMs`.
+ *
+ * Summing clamped gaps rather than taking `last.at - first.at` is what keeps one
+ * break from swallowing a whole span: a bucket holding a 30-second turn and a
+ * two-hour lunch should read as "a bit longer than usual", not as the session.
+ *
+ * Returns `0` when no turn carries a timestamp, which callers read as "no
+ * real-time information" and fall back to even weighting.
+ */
+function elapsedOf(
+  turns: TurnSignals[],
+  from: number,
+  to: number,
+  maxGapMs: number,
+): number {
+  let total = 0;
+  let seen = false;
+  for (let i = from; i < to; i++) {
+    const at = turns[i]?.at;
+    const previous = i > 0 ? turns[i - 1]?.at : undefined;
+    if (typeof at !== 'number' || typeof previous !== 'number') continue;
+    seen = true;
+    total += clamp(at - previous, 0, maxGapMs);
+  }
+  return seen ? total : 0;
+}
+
 const HIGH_END = ['claude-opus', 'claude-fable'];
 const isHighEnd = (model: string | null): boolean =>
   model !== null && HIGH_END.some((p) => model.startsWith(p));
@@ -195,6 +250,7 @@ export function scoreSession(turns: TurnSignals[], options?: ScoreOptions): Mome
         'exec' as ToolKind,
       ),
       endsTurn: slice.some((t) => t.endsTurn),
+      elapsedMs: elapsedOf(turns, from, to, opts.maxGapMs),
     };
   });
 
@@ -209,8 +265,28 @@ export function scoreSession(turns: TurnSignals[], options?: ScoreOptions): Mome
     SHAPES.reduce((sum, s) => sum + mix[s] * pick(SHAPE_FEEL[s]), 0);
 
   // Distribute the fixed total across spans, weighted so thinking breathes.
-  const weights = buckets.map((b) => blend(b.mix, (f) => f.weight));
-  const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
+  const shapeWeights = buckets.map((b) => blend(b.mix, (f) => f.weight));
+
+  // …and so the session's real rhythm shows: a span you spent twenty minutes in
+  // should not pass at the same rate as one that took thirty seconds. Scaled
+  // against the mean span so this stretches and compresses around the existing
+  // weighting rather than replacing it.
+  const elapsed = buckets.map((b) => b.elapsedMs);
+  const totalElapsed = elapsed.reduce((a, b) => a + b, 0);
+  const meanElapsed = totalElapsed / Math.max(1, elapsed.length);
+  const timeWeight = clamp(opts.timeWeight, 0, 1);
+
+  const weights = shapeWeights.map((shapeWeight, i) => {
+    // No timestamps anywhere (a v1 recording, a transcript without them) means
+    // no real-time information to use, so fall back to even weighting.
+    if (totalElapsed <= 0 || meanElapsed <= 0) return shapeWeight;
+    const share = elapsed[i]! / meanElapsed;
+    return shapeWeight * (1 - timeWeight + timeWeight * share);
+  });
+
+  // A span of pure zero weight would render as no audio at all.
+  const floored = weights.map((w) => Math.max(w, 0.05));
+  const weightSum = floored.reduce((a, b) => a + b, 0) || 1;
 
   return buckets.map((b, i) => {
     const rank = percentile(b.tokens, sortedTokens);
@@ -220,7 +296,7 @@ export function scoreSession(turns: TurnSignals[], options?: ScoreOptions): Mome
     const depth = ctxSpan > 0 ? (b.contextPct - ctxMin) / ctxSpan : i / Math.max(1, buckets.length - 1);
     const richness = clamp(Math.round(depth * 2), 0, 2);
 
-    const durationMs = (weights[i]! / weightSum) * opts.totalMs;
+    const durationMs = (floored[i]! / weightSum) * opts.totalMs;
 
     return {
       tier: { ensembleSize, richness, timbre: isHighEnd(b.model) ? 1 : 0 },
