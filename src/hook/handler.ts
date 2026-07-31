@@ -1,8 +1,9 @@
-import { extractUsage } from '../extractUsage';
+import { extractTurnFacts } from '../extractUsage';
 import { mapToTier } from '../mapToTier';
 import { recordTier, clearSession } from '../state';
 import { sendTier } from '../daemon/client';
 import { startDaemon, stopDaemon } from './daemonControl';
+import { touchHeartbeat, clearHeartbeat } from './heartbeat';
 import { recordTurn, finalizeRecording, pruneRecordings } from '../recorder';
 import type { Tier } from '../types';
 import type { ConductConfig } from './config';
@@ -22,24 +23,28 @@ export interface HookInput {
 
 /** Injectable collaborators — the defaults are the real modules; tests pass stubs. */
 export interface HandlerDeps {
-  extractUsage: typeof extractUsage;
+  extractTurnFacts: typeof extractTurnFacts;
   recordTier: typeof recordTier;
   clearSession: typeof clearSession;
   sendTier: typeof sendTier;
   startDaemon: typeof startDaemon;
   stopDaemon: typeof stopDaemon;
+  touchHeartbeat: typeof touchHeartbeat;
+  clearHeartbeat: typeof clearHeartbeat;
   recordTurn: typeof recordTurn;
   finalizeRecording: typeof finalizeRecording;
   pruneRecordings: typeof pruneRecordings;
 }
 
 export const realDeps: HandlerDeps = {
-  extractUsage,
+  extractTurnFacts,
   recordTier,
   clearSession,
   sendTier,
   startDaemon,
   stopDaemon,
+  touchHeartbeat,
+  clearHeartbeat,
   recordTurn,
   finalizeRecording,
   pruneRecordings,
@@ -58,9 +63,9 @@ export interface HandleResult {
  *   starts when you ask for it with `/conduct start` (or `unmute`). Tier updates
  *   still accumulate in the command file while it's down, so starting mid-session
  *   picks up at the right layer instead of from silence.
- * - `SessionEnd`   → stop the daemon and drop this session's state.
+ * - `SessionEnd`   → stop the daemon, clear the heartbeat, drop this session's state.
  * - `PostToolUse` / `Stop` (anything with a transcript) →
- *   `extractUsage → mapToTier → recordTier` (dedupe) → `sendTier` on change.
+ *   `extractTurnFacts → mapToTier → recordTier` (dedupe) → `sendTier` on change.
  *
  * Pure orchestration over injected deps. It does not catch — the entrypoint
  * wraps it so a failure can never block the Claude Code turn — but nothing here
@@ -73,6 +78,11 @@ export function handleEvent(
   paths: ConductPaths,
   deps: HandlerDeps = realDeps,
 ): HandleResult {
+  // Any event at all proves Claude Code is still alive, so stamp the marker
+  // before branching — including on events we otherwise ignore. `SessionEnd` is
+  // the one exception: it clears the marker instead.
+  if (input.hook_event_name !== 'SessionEnd') deps.touchHeartbeat(paths.heartbeatPath);
+
   switch (input.hook_event_name) {
     case 'SessionStart':
       // Deliberately does not start the daemon — see the note above.
@@ -80,6 +90,7 @@ export function handleEvent(
 
     case 'SessionEnd':
       deps.stopDaemon(paths);
+      deps.clearHeartbeat(paths.heartbeatPath);
       if (input.session_id) {
         deps.clearSession(paths.statePath, input.session_id);
         if (config.recordings.enabled) {
@@ -94,10 +105,12 @@ export function handleEvent(
       if (!input.transcript_path || !input.session_id) {
         return { action: 'noop', emitted: null };
       }
-      const usage = deps.extractUsage(input.transcript_path, {
+      // One read of the transcript yields both the tier inputs and the axes the
+      // recording stores (CC-12); the mapper still sees only the usage fields.
+      const facts = deps.extractTurnFacts(input.transcript_path, {
         contextWindows: config.contextWindows,
       });
-      const mapped = mapToTier(usage, config.tier);
+      const mapped = mapToTier(facts, config.tier);
       const tier = config.mute ? SILENT_TIER : mapped;
 
       // Record the *mapped* tier, not the muted one: a recording describes what
@@ -106,7 +119,7 @@ export function handleEvent(
       // every turn gets a line, because the playground re-scores from the raw
       // axes and needs them all, not just the turns that changed tier.
       if (config.recordings.enabled) {
-        deps.recordTurn(paths.recordingsDir, input.session_id, usage, mapped);
+        deps.recordTurn(paths.recordingsDir, input.session_id, facts, mapped);
       }
 
       const { emit } = deps.recordTier(paths.statePath, input.session_id, tier);
