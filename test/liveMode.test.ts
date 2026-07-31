@@ -287,3 +287,77 @@ test('the daemon falls to silence after the hold, and a new command cancels it',
     assert.ok(readFileSync(commandPath, 'utf8').length > 0);
   });
 });
+
+test('a dropped fs.watch event still lands, via the poll backstop', async () => {
+  const { ConductDaemon } = await import('../src/daemon/server');
+  const { NullSink } = await import('../src/audio/sink');
+  const { tierToGains } = await import('../src/audio/tierGains');
+
+  await new Promise<void>((resolve, reject) => {
+    const dir = mkdtempSync(join(tmpdir(), 'conduct-poll-'));
+    const commandPath = join(dir, 'cmd.json');
+    const stems = Array.from({ length: 10 }, () => new Float32Array(64));
+    const daemon = new ConductDaemon(stems, new NullSink(), {
+      commandPath,
+      autoRender: false,
+      autoWatchdog: false,
+      blockFrames: 32,
+      pollMs: 20,
+    });
+    daemon.start();
+
+    // Write *without* triggering a rename the watcher would see reliably; the
+    // poll is the only thing that can notice this.
+    writeFileSync(commandPath, JSON.stringify({ ts: 7, tier: { ensembleSize: 4, richness: 2 } }));
+
+    const expected = tierToGains({ ensembleSize: 4, richness: 2 });
+    const deadline = Date.now() + 5_000;
+    const check = (): void => {
+      try {
+        // The bank has extra stems for the CC-10 extensions; compare the core.
+        assert.deepEqual(daemon.targets.slice(0, expected.length), expected);
+        daemon.stop();
+        rmSync(dir, { recursive: true, force: true });
+        resolve();
+      } catch (error) {
+        if (Date.now() > deadline) {
+          daemon.stop();
+          rmSync(dir, { recursive: true, force: true });
+          reject(error);
+          return;
+        }
+        setTimeout(check, 20);
+      }
+    };
+    check();
+  });
+});
+
+test('re-reading the same command does not restart a pending cadence forever', async () => {
+  const { ConductDaemon } = await import('../src/daemon/server');
+  const { NullSink } = await import('../src/audio/sink');
+
+  withTmpDir((dir) => {
+    const commandPath = join(dir, 'cmd.json');
+    const stems = Array.from({ length: 10 }, () => new Float32Array(64));
+    const daemon = new ConductDaemon(stems, new NullSink(), {
+      commandPath,
+      autoRender: false,
+      autoWatchdog: false,
+      autoPoll: false,
+    });
+
+    writeFileSync(commandPath, JSON.stringify({ ts: 1, tier: { ensembleSize: 2, richness: 0 }, holdMs: 30 }));
+    daemon.start();
+    assert.equal(daemon.cadencePending, true);
+
+    // The watcher fires twice for one rename all the time. If each refresh
+    // rescheduled, the fall to silence would never arrive.
+    daemon.refresh();
+    daemon.refresh();
+    assert.equal(daemon.cadencePending, true, 'still the original timer, not a fresh one');
+
+    daemon.stop();
+    assert.equal(daemon.cadencePending, false, 'stopping clears it');
+  });
+});

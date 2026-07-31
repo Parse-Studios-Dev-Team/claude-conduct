@@ -19,6 +19,8 @@ export interface ConductPaths {
   logPath: string;
   /** CC-9 per-session timeline recordings, one `<session_id>.jsonl` per session. */
   recordingsDir: string;
+  /** CC-13 rendered pieces, one `<session_id>.wav` per session. */
+  rendersDir: string;
 }
 
 /**
@@ -69,5 +71,6 @@ export function resolvePaths(baseDir: string): ConductPaths {
     heartbeatPath: join(runtimeDir, 'conduct.heartbeat'),
     logPath: join(runtimeDir, 'conduct-daemon.log'),
     recordingsDir: join(runtimeDir, 'recordings'),
+    rendersDir: join(runtimeDir, 'renders'),
   };
 }

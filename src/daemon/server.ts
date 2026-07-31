@@ -28,6 +28,10 @@ export interface DaemonOptions extends ConductorOptions {
   onIdle?: () => void;
   /** Poll the watchdog on a timer. Default `true`; tests pass `false` and call {@link ConductDaemon.isIdle}. */
   autoWatchdog?: boolean;
+  /** Back up `fs.watch` with a poll. Default `true`; tests pass `false` and call {@link ConductDaemon.refresh}. */
+  autoPoll?: boolean;
+  /** How often the poll backstop re-reads the command file. Default 1000ms. */
+  pollMs?: number;
 }
 
 /**
@@ -43,6 +47,10 @@ export class ConductDaemon {
   private idleTimer: ReturnType<typeof setInterval> | undefined;
   /** Pending CC-11 fall-to-silence after a cadence. */
   private cadenceTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Poll backstop for dropped `fs.watch` events. */
+  private pollTimer: ReturnType<typeof setInterval> | undefined;
+  /** Raw text of the last command applied, so repeats are ignored. */
+  private lastCommandText: string | undefined;
   private startedAt = 0;
   private pumping = false;
   private running = false;
@@ -88,6 +96,16 @@ export class ConductDaemon {
       });
     } catch {
       /* watching is best-effort; SessionStart can still push an initial tier */
+    }
+
+    // `fs.watch` is not a guarantee. On macOS it coalesces and outright drops
+    // events under load — observed here as a command that never arrived — and a
+    // dropped command means the music silently stops responding for the rest of
+    // the session. A slow poll backstops it: the watcher still provides the
+    // low-latency path, and this bounds the worst case to `pollMs`.
+    if (this.opts.autoPoll !== false) {
+      this.pollTimer = setInterval(() => this.refresh(), this.opts.pollMs ?? 1_000);
+      this.pollTimer.unref?.();
     }
 
     if (this.opts.pidPath) {
@@ -187,10 +205,23 @@ export class ConductDaemon {
     this.conductor.renderBlock();
   }
 
-  /** Re-read the command file and apply its tier and/or volume, if valid. */
+  /**
+   * Re-read the command file and apply its tier and/or volume, if valid.
+   *
+   * Idempotent by content: identical text is ignored. Both callers can fire more
+   * than once for a single write — `fs.watch` regularly reports a rename twice,
+   * and the poll re-reads unconditionally — and re-applying would restart a
+   * pending cadence's timer every time, so the fall to silence would never
+   * actually arrive. Every command carries a `ts`, so a genuine repeat still
+   * differs textually.
+   */
   refresh(): void {
     try {
-      const command = parseCommand(readFileSync(this.opts.commandPath, 'utf8'));
+      const text = readFileSync(this.opts.commandPath, 'utf8');
+      if (text === this.lastCommandText) return;
+      this.lastCommandText = text;
+
+      const command = parseCommand(text);
       if (!command) return;
 
       // Any new command supersedes a pending cadence — if Claude started working
@@ -244,6 +275,11 @@ export class ConductDaemon {
     }
 
     this.clearCadence();
+
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = undefined;
+    }
 
     if (this.watcher) {
       try {
