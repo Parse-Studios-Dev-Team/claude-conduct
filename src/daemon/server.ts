@@ -41,6 +41,8 @@ export class ConductDaemon {
   private readonly opts: DaemonOptions;
   private watcher: FSWatcher | undefined;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
+  /** Pending CC-11 fall-to-silence after a cadence. */
+  private cadenceTimer: ReturnType<typeof setTimeout> | undefined;
   private startedAt = 0;
   private pumping = false;
   private running = false;
@@ -190,11 +192,44 @@ export class ConductDaemon {
     try {
       const command = parseCommand(readFileSync(this.opts.commandPath, 'utf8'));
       if (!command) return;
+
+      // Any new command supersedes a pending cadence — if Claude started working
+      // again inside the hold, the music must stay up rather than fall silent
+      // underneath the next turn.
+      this.clearCadence();
+
       if (command.tier) this.conductor.setTier(command.tier);
       if (command.volume !== undefined) this.conductor.setVolume(command.volume);
+      if (command.holdMs !== undefined && command.tier) this.scheduleSilence(command.holdMs);
     } catch {
       /* file may not exist yet */
     }
+  }
+
+  /**
+   * CC-11: fall to silence after a cadence has been heard.
+   *
+   * `unref` so a pending cadence can never be the thing keeping the process
+   * alive — the render pump decides the daemon's lifetime, not this.
+   */
+  private scheduleSilence(holdMs: number): void {
+    this.cadenceTimer = setTimeout(() => {
+      this.cadenceTimer = undefined;
+      if (this.running) this.conductor.setTier({ ensembleSize: 0, richness: 0 });
+    }, holdMs);
+    this.cadenceTimer.unref?.();
+  }
+
+  private clearCadence(): void {
+    if (this.cadenceTimer) {
+      clearTimeout(this.cadenceTimer);
+      this.cadenceTimer = undefined;
+    }
+  }
+
+  /** Whether a cadence is waiting to fall to silence — for tests. */
+  get cadencePending(): boolean {
+    return this.cadenceTimer !== undefined;
   }
 
   /** Idempotent clean shutdown: stop rendering/watching, release the sink, remove the pidfile. */
@@ -207,6 +242,8 @@ export class ConductDaemon {
       clearInterval(this.idleTimer);
       this.idleTimer = undefined;
     }
+
+    this.clearCadence();
 
     if (this.watcher) {
       try {

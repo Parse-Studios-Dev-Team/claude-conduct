@@ -19,7 +19,7 @@ import { touchHeartbeat, clearHeartbeat, heartbeatAgeMs } from '../src/hook/hear
 import { handleEvent, type HandlerDeps, type HookInput } from '../src/hook/handler';
 import { extractTurnFacts } from '../src/extractUsage';
 import { recordTier, clearSession, noteUnreadable, unreadableCount, readState } from '../src/state';
-import { sendTier } from '../src/daemon/client';
+import { sendTier, sendCadence } from '../src/daemon/client';
 import { mapToTier } from '../src/mapToTier';
 import {
   recordTurn,
@@ -140,6 +140,9 @@ function stubDeps(usage: Usage, emit: boolean): { deps: HandlerDeps; calls: Call
     sendTier: (path, tier) => {
       calls.sendTier.push({ path, tier });
     },
+    sendCadence: (path, tier) => {
+      calls.sendTier.push({ path, tier });
+    },
     startDaemon: () => {
       calls.startDaemon++;
     },
@@ -187,7 +190,9 @@ test('SessionEnd stops the daemon and clears the session', () => {
   assert.deepEqual(calls.clearSession, ['abc']);
 });
 
-test('PostToolUse maps usage → tier and sends it when the tier changed', () => {
+const GRADIENT = { ...DEFAULT_CONFIG, live: { ...DEFAULT_CONFIG.live, mode: 'gradient' as const } };
+
+test('PostToolUse maps usage → tier and sends it when the tier changed (gradient mode)', () => {
   const usage: Usage = { tokens: 3000, contextPct: 20, model: 'claude-opus-4-8' };
   const { deps, calls } = stubDeps(usage, true);
   const input: HookInput = {
@@ -195,7 +200,7 @@ test('PostToolUse maps usage → tier and sends it when the tier changed', () =>
     session_id: 's',
     transcript_path: '/t.jsonl',
   };
-  const result = handleEvent(input, DEFAULT_CONFIG, paths, deps);
+  const result = handleEvent(input, GRADIENT, paths, deps);
 
   const expected = mapToTier(usage); // {4,0}: token level 3 + opus bump
   assert.equal(result.action, 'update');
@@ -209,7 +214,7 @@ test('an unchanged tier (recordTier emit=false) sends nothing', () => {
   const { deps, calls } = stubDeps({ tokens: 3000, contextPct: 20, model: 'claude-opus-4-8' }, false);
   const result = handleEvent(
     { hook_event_name: 'Stop', session_id: 's', transcript_path: '/t.jsonl' },
-    DEFAULT_CONFIG,
+    GRADIENT,
     paths,
     deps,
   );
@@ -249,6 +254,7 @@ test('end-to-end wiring: a real transcript drives a real command + state file, a
       unreadableCount,
       clearSession,
       sendTier,
+      sendCadence,
       startDaemon: () => {},
       stopDaemon: () => {},
       recordTurn,
@@ -264,7 +270,7 @@ test('end-to-end wiring: a real transcript drives a real command + state file, a
       transcript_path: fixture('large.jsonl'),
     };
 
-    const first = handleEvent(input, DEFAULT_CONFIG, p, deps);
+    const first = handleEvent(input, GRADIENT, p, deps);
     // large.jsonl is Opus → full tier + high-end timbre signature.
     assert.deepEqual(first.emitted, { ensembleSize: 5, richness: 1, timbre: 1 });
     assert.ok(existsSync(p.commandPath), 'command file written');
@@ -280,7 +286,7 @@ test('end-to-end wiring: a real transcript drives a real command + state file, a
     });
 
     // Same transcript again → deduped, nothing re-emitted.
-    const second = handleEvent(input, DEFAULT_CONFIG, p, deps);
+    const second = handleEvent(input, GRADIENT, p, deps);
     assert.equal(second.emitted, null);
   });
 });

@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { TierConfig } from '../mapToTier';
+import { DEFAULT_LIVE_CONFIG, type LiveConfig } from '../liveMode';
 
 /**
  * User-tunable configuration for the Conduct hook. Loaded from a JSON file
@@ -31,6 +32,8 @@ export interface ConductConfig {
   stemsDir?: string;
   /** CC-9 session recording: whether to log a timeline, and how many to keep. */
   recordings: RecordingsConfig;
+  /** CC-11 live playback shape: presence + cadence, or the original gradient. */
+  live: LiveConfig;
 }
 
 /** Tuning for the CC-9 session recorder. */
@@ -53,11 +56,20 @@ export const DEFAULT_CONFIG: ConductConfig = {
   tier: {},
   contextWindows: {},
   recordings: { enabled: true, keep: 20 },
+  live: { ...DEFAULT_LIVE_CONFIG },
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+const allFinite = (value: unknown, length: number): boolean =>
+  Array.isArray(value) &&
+  value.length === length &&
+  value.every((n) => typeof n === 'number' && Number.isFinite(n));
+
+const isTwoNumbers = (value: unknown): value is [number, number] => allFinite(value, 2);
+const isThreeNumbers = (value: unknown): value is [number, number, number] => allFinite(value, 3);
 
 /**
  * Load and validate config from `configPath`, merged over {@link DEFAULT_CONFIG}.
@@ -108,6 +120,22 @@ export function loadConfig(configPath: string): ConductConfig {
       recordings.keep = Math.max(0, Math.floor(parsed.recordings.keep));
     }
     config.recordings = recordings;
+  }
+  if (isPlainObject(parsed.live)) {
+    const live: LiveConfig = { ...DEFAULT_LIVE_CONFIG };
+    if (parsed.live.mode === 'presence' || parsed.live.mode === 'gradient') {
+      live.mode = parsed.live.mode;
+    }
+    if (isThreeNumbers(parsed.live.levels)) live.levels = parsed.live.levels;
+    if (isTwoNumbers(parsed.live.steps)) live.steps = parsed.live.steps;
+    if (
+      typeof parsed.live.cadenceHoldMs === 'number' &&
+      Number.isFinite(parsed.live.cadenceHoldMs) &&
+      parsed.live.cadenceHoldMs > 0
+    ) {
+      live.cadenceHoldMs = parsed.live.cadenceHoldMs;
+    }
+    config.live = live;
   }
   return config;
 }
