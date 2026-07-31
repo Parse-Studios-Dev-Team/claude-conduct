@@ -8,6 +8,7 @@ import {
 } from '../src/recordingFormat';
 import type { Tier, Usage } from '../src/types';
 import { PlaygroundEngine } from './audio';
+import { readScore, type VoiceReadout } from './score';
 
 /**
  * The playground: load a recorded session, re-score it live as you move the
@@ -261,6 +262,111 @@ function updateMetrics(): void {
   }
 }
 
+// --- score readout ----------------------------------------------------------
+//
+// A rAF loop rather than a timer: the drift morphs and the bell strikes are
+// continuous, so this has to track the audio clock, not the turn clock. It reads
+// gains straight off the engine, so what it shows is the mix as it stands
+// mid-crossfade rather than the tier we asked for.
+
+let scoreFrame: number | null = null;
+let voiceRows: Array<{ row: HTMLElement; note: HTMLElement; fill: HTMLElement; gain: HTMLElement }> = [];
+
+function buildScoreRows(): void {
+  const mount = $('score-voices');
+  mount.innerHTML = '';
+  voiceRows = state.voices.map((voice, i) => {
+    const row = document.createElement('div');
+    row.className = `voice${voice.pulses ? ' struck' : ''}`;
+
+    const role = document.createElement('span');
+    role.className = 'voice-role';
+
+    const note = document.createElement('span');
+    note.className = 'voice-note';
+
+    const meter = document.createElement('span');
+    meter.className = 'voice-meter';
+    const fill = document.createElement('i');
+    meter.append(fill);
+
+    const gain = document.createElement('span');
+    gain.className = 'voice-gain';
+
+    row.append(role, note, meter, gain);
+    mount.append(row);
+    role.textContent = readScore(state.voices, [], 0).voices[i]!.role;
+    return { row, note, fill, gain };
+  });
+
+  const bell = $('score-bell');
+  bell.innerHTML = '';
+  const figure = readScore(state.voices, [], 0).voices.at(-1)?.strike?.figure ?? [];
+  for (const name of figure) {
+    const cell = document.createElement('span');
+    cell.className = 'bell-cell';
+    cell.textContent = name;
+    bell.append(cell);
+  }
+}
+
+function renderScore(): void {
+  if (!engine) return;
+  const turn = engine.loopTurn();
+  const score = readScore(state.voices, engine.gains(), turn);
+
+  const chordEl = $('score-chord');
+  chordEl.textContent = score.notes.length > 0 ? score.label : '—';
+  chordEl.classList.toggle('unnamed', score.drifting);
+  $('score-notes').textContent =
+    score.notes.length > 0 ? score.notes.join('  ·  ') : 'silent — no layers above the floor';
+
+  $('score-loop-fill').style.width = `${(turn * 100).toFixed(1)}%`;
+  $('score-loop-label').textContent = `loop ${(turn * (engine.loopLengthMs / 1000)).toFixed(1)}s / ${(engine.loopLengthMs / 1000).toFixed(0)}s`;
+
+  score.voices.forEach((voice, i) => {
+    const row = voiceRows[i];
+    if (!row) return;
+    row.row.classList.toggle('on', voice.audible);
+    row.note.innerHTML = noteMarkup(voice);
+    row.fill.style.width = `${Math.min(100, voice.gain * 100).toFixed(0)}%`;
+    row.gain.textContent = voice.gain < 0.005 ? '—' : voice.gain.toFixed(2);
+  });
+
+  const bellVoice = score.voices.at(-1);
+  const bellCells = $('score-bell').children;
+  $('score-bell').parentElement?.classList.toggle('off', !bellVoice?.audible);
+  for (let i = 0; i < bellCells.length; i++) {
+    bellCells[i]!.classList.toggle('now', !!bellVoice?.audible && bellVoice.strike?.index === i);
+  }
+}
+
+/** A drifting voice shows where it is going; a settled one just shows its note. */
+function noteMarkup(voice: VoiceReadout): string {
+  if (voice.toward && voice.toward.blend > 0.06) {
+    return `${voice.note}<span class="toward">→ ${voice.toward.note}</span>`;
+  }
+  return voice.note;
+}
+
+function startScoreLoop(): void {
+  if (scoreFrame !== null) return;
+  const tick = (): void => {
+    renderScore();
+    scoreFrame = window.requestAnimationFrame(tick);
+  };
+  scoreFrame = window.requestAnimationFrame(tick);
+}
+
+function stopScoreLoop(): void {
+  if (scoreFrame === null) return;
+  window.cancelAnimationFrame(scoreFrame);
+  scoreFrame = null;
+  // One last paint so the panel settles on the faded-out state rather than
+  // freezing mid-strike.
+  window.setTimeout(renderScore, state.crossfadeMs);
+}
+
 // --- transport --------------------------------------------------------------
 
 function applyCurrentTier(): void {
@@ -290,6 +396,7 @@ async function play(): Promise<void> {
   await engine.start();
   state.playing = true;
   $('play').textContent = 'Pause';
+  startScoreLoop();
   applyCurrentTier();
   if (advanceTimer !== null) window.clearInterval(advanceTimer);
   advanceTimer = window.setInterval(step, state.turnMs);
@@ -303,6 +410,7 @@ function pause(): void {
     advanceTimer = null;
   }
   engine?.setTier({ ensembleSize: 0, richness: 0, timbre: 0 });
+  stopScoreLoop();
 }
 
 // --- rescoring --------------------------------------------------------------
@@ -463,6 +571,7 @@ function buildMelodyControls(): void {
       };
       engine?.setVoices(state.voices);
       if (state.playing) applyCurrentTier();
+      buildScoreRows(); // the figure changed — relabel the bell cells
       updateConfigOutput();
     });
 
@@ -495,7 +604,29 @@ function updateConfigOutput(): void {
 
 // --- recording loading ------------------------------------------------------
 
-function loadRecording(recording: LoadedRecording): void {
+/** What `/recordings.json` serves — the recording plus its label from the transcript. */
+interface ServerRecording {
+  sessionId: string;
+  file: string;
+  mtime: number;
+  title?: string;
+  prompt?: string | null;
+}
+
+/** Server metadata by file URL, so the picker's `change` can reach it. */
+const serverMeta = new Map<string, ServerRecording>();
+
+/** "26 Jul, 20:29" — enough to tell two sessions from the same day apart. */
+function shortDate(mtime: number): string {
+  return new Date(mtime).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function loadRecording(recording: LoadedRecording, meta?: ServerRecording): void {
   if (recording.turns.length === 0) {
     $('load-note').textContent = `${recording.name}: no turns found in that file.`;
     return;
@@ -513,8 +644,22 @@ function loadRecording(recording: LoadedRecording): void {
   const minutes = Math.round(recording.summary.durationMs / 60000);
   const span = minutes > 0 ? `${minutes} min` : '<1 min';
   const models = recording.summary.models.join(', ') || 'unknown model';
-  $('load-note').textContent =
-    `${recording.name} — ${recording.turns.length} turns, ${span}, ${models}`;
+  const facts = `${recording.turns.length} turns, ${span}, ${models}`;
+
+  // The opening prompt is the useful part; the id is kept as a subtitle so a
+  // session can still be matched back to its transcript file.
+  const note = $('load-note');
+  note.innerHTML = '';
+  if (meta?.prompt) {
+    const quote = document.createElement('div');
+    quote.className = 'load-title';
+    quote.textContent = `“${meta.prompt.length > 160 ? `${meta.prompt.slice(0, 160).trimEnd()}…` : meta.prompt}”`;
+    note.append(quote);
+  }
+  const line = document.createElement('div');
+  line.className = 'load-facts';
+  line.textContent = meta ? `${facts} · ${meta.sessionId.slice(0, 8)}` : `${recording.name} — ${facts}`;
+  note.append(line);
 
   updateMetrics();
   drawChart();
@@ -525,7 +670,7 @@ async function loadFromServer(): Promise<void> {
   try {
     const response = await fetch('./recordings.json');
     if (!response.ok) return;
-    const list: Array<{ sessionId: string; file: string }> = await response.json();
+    const list: ServerRecording[] = await response.json();
     const picker = $<HTMLSelectElement>('recording-picker');
     picker.innerHTML = '';
     if (list.length === 0) {
@@ -535,12 +680,20 @@ async function loadFromServer(): Promise<void> {
     }
     picker.disabled = false;
     picker.append(new Option('Choose a session…', ''));
-    for (const item of list) picker.append(new Option(item.sessionId, item.file));
+    for (const item of list) {
+      // Date first so the list reads chronologically at a glance, then what the
+      // session was actually about.
+      const option = new Option(`${shortDate(item.mtime)} — ${item.title ?? item.sessionId}`, item.file);
+      option.title = item.prompt ?? item.sessionId; // full opening prompt on hover
+      picker.append(option);
+    }
+    for (const item of list) serverMeta.set(item.file, item);
 
     picker.addEventListener('change', async () => {
       if (!picker.value) return;
+      const meta = serverMeta.get(picker.value);
       const text = await (await fetch(picker.value)).text();
-      loadRecording(load(picker.selectedOptions[0]!.text, text));
+      loadRecording(load(meta?.title ?? picker.selectedOptions[0]!.text, text), meta);
     });
   } catch {
     /* served standalone; drag-and-drop still works */
@@ -560,6 +713,8 @@ function init(): void {
   buildThresholdSliders('richnessThresholds', 'richness-sliders');
   buildVoiceControls();
   buildMelodyControls();
+  buildScoreRows();
+  renderScore();
   updateConfigOutput();
 
   $('play').addEventListener('click', () => {

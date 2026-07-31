@@ -73,9 +73,29 @@ Other top-level keys seen: `uuid`, `parentUuid`, `sessionId`, `timestamp`,
 
 ## Derived signals (see `src/extractUsage.ts`)
 
-- `tokens = input_tokens + output_tokens` — the *latest* turn's fresh work.
-  Cache read/creation excluded so a big file read doesn't look like a big turn.
+- `tokens = input_tokens + output_tokens + cache_creation_input_tokens` — the
+  *latest* turn's fresh work. `cache_creation` **is** counted: it is the freshly
+  written part of the prompt, and once caching is warm `input_tokens` collapses
+  to 1–2, which made this axis a measure of reply length alone. `cache_read` is
+  still excluded, so re-reading a warm prompt doesn't look like new work.
 - `contextPct = (input_tokens + cache_creation_input_tokens + cache_read_input_tokens) / contextWindow * 100`,
   clamped to `[0,100]` — current context-window occupancy (`contextWindow`
   defaults to 200k, overridable per model).
 - `model` — raw `.message.model`.
+
+## `user` entries are not all the user (see `src/sessionTitle.ts`)
+
+Claude Code replays machinery through the `user` role, so "the first user
+message" is not the first `type: "user"` line. Three markers distinguish them,
+and the title extractor skips a line carrying **any** of them:
+
+| marker | what it means |
+| ------ | ------------- |
+| `isMeta: true` | an injected note, not typed by anyone |
+| `sourceToolUseID` | output of a slash command, replayed into the turn |
+| `toolUseResult` | a tool's return value echoed back |
+
+A genuine prompt also carries `promptSource`. Its `.message.content` may be a
+plain string *or* an array of blocks, and may wrap `<command-name>`,
+`<command-args>` and `<system-reminder>` sections that have to be stripped
+before the text is legible.

@@ -14,6 +14,7 @@
     "setup": "npm run build && npm run install-hooks",
     "install-hooks": "tsx scripts/install-hooks.ts",
     "export-stems": "tsx scripts/export-stems.ts",
+    "render-session": "tsx scripts/render-session.ts",
     "playground": "tsx scripts/playground.ts"
   },
   "devDependencies": {
