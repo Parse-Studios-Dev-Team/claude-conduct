@@ -20,6 +20,7 @@ import type { TurnSignals } from './sessionScore';
 
 interface AssistantLine {
   type?: string;
+  timestamp?: unknown;
   isSidechain?: boolean;
   effort?: unknown;
   message?: {
@@ -33,6 +34,13 @@ interface AssistantLine {
       cache_creation_input_tokens?: number;
     };
   };
+}
+
+/** ISO-8601 `timestamp` → epoch ms, or `undefined` when absent/unparseable. */
+function parseAt(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : undefined;
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -105,6 +113,7 @@ export function parseTranscriptSignals(
       shape,
       tool,
       endsTurn: message.stop_reason === 'end_turn',
+      at: parseAt(parsed.timestamp),
     });
   }
 

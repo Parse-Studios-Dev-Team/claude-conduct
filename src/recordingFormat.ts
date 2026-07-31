@@ -200,6 +200,7 @@ export function turnSignals(turn: RecordedTurn): TurnSignals {
     shape: turn.sh ?? 'text',
     tool: turn.tl ?? null,
     endsTurn: turn.end === true,
+    at: turn.t,
   };
 }
 
