@@ -10,7 +10,8 @@
  * launches this and passes config through the environment.
  *
  * Env: CONDUCT_COMMAND, CONDUCT_PID, CONDUCT_SAMPLE_RATE, CONDUCT_VOLUME (0..1),
- * CONDUCT_CROSSFADE_MS, CONDUCT_SILENT=1.
+ * CONDUCT_CROSSFADE_MS, CONDUCT_SILENT=1, CONDUCT_HEARTBEAT,
+ * CONDUCT_IDLE_TIMEOUT_MS (0 disables the idle watchdog).
  */
 import { synthesizeStems } from '../src/audio/synth';
 import { loadStems } from '../src/audio/loadStems';
@@ -28,6 +29,12 @@ function volume(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback;
 }
 
+/** Like {@link num} but accepts `0`, which disables the idle watchdog. */
+function duration(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 async function main(): Promise<void> {
   const commandPath = process.env.CONDUCT_COMMAND ?? '.claude/conduct-command.json';
   const pidPath = process.env.CONDUCT_PID ?? '.claude/conduct.pid';
@@ -35,6 +42,8 @@ async function main(): Promise<void> {
   const masterGain = volume(process.env.CONDUCT_VOLUME, 0.8);
   const crossfadeMs = num(process.env.CONDUCT_CROSSFADE_MS, 1_500);
   const silent = process.argv.includes('--silent') || process.env.CONDUCT_SILENT === '1';
+  const heartbeatPath = process.env.CONDUCT_HEARTBEAT;
+  const idleTimeoutMs = duration(process.env.CONDUCT_IDLE_TIMEOUT_MS, 15 * 60 * 1_000);
 
   // Real stems from CONDUCT_STEMS_DIR if present and loadable; else synth placeholders.
   const count = stemCount(DEFAULT_LAYOUT);
@@ -67,21 +76,35 @@ async function main(): Promise<void> {
     }
   }
 
-  const daemon = new ConductDaemon(stems, sink, { commandPath, pidPath, masterGain, crossfadeMs });
-  daemon.start();
-  const mode = sink instanceof NullSink ? 'silent' : 'audio';
-  console.log(`[conduct] daemon up (${mode}, vol ${masterGain}, ${stemSource}); watching ${commandPath}`);
-
+  let daemon: ConductDaemon | undefined;
   let stopping = false;
-  const shutdown = (): void => {
+  const shutdown = (reason: string): void => {
     if (stopping) return;
     stopping = true;
-    daemon.stop();
-    console.log('[conduct] daemon stopped.');
+    daemon?.stop();
+    console.log(`[conduct] daemon stopped (${reason}).`);
     process.exit(0);
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+
+  daemon = new ConductDaemon(stems, sink, {
+    commandPath,
+    pidPath,
+    masterGain,
+    crossfadeMs,
+    heartbeatPath,
+    idleTimeoutMs,
+    onIdle: () => shutdown('idle'),
+  });
+  daemon.start();
+
+  const mode = sink instanceof NullSink ? 'silent' : 'audio';
+  const watchdog = heartbeatPath && idleTimeoutMs > 0 ? `idle ${Math.round(idleTimeoutMs / 1000)}s` : 'no watchdog';
+  console.log(
+    `[conduct] daemon up (${mode}, vol ${masterGain}, ${stemSource}, ${watchdog}); watching ${commandPath}`,
+  );
+
+  process.on('SIGINT', () => shutdown('signal'));
+  process.on('SIGTERM', () => shutdown('signal'));
 }
 
 void main();

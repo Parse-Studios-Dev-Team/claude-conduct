@@ -10,6 +10,7 @@ import {
 import { dirname, basename } from 'node:path';
 import { Conductor, type ConductorOptions } from './conductor';
 import { parseCommand } from './command';
+import { heartbeatAgeMs } from '../hook/heartbeat';
 import type { Sink } from '../audio/sink';
 
 export interface DaemonOptions extends ConductorOptions {
@@ -19,6 +20,14 @@ export interface DaemonOptions extends ConductorOptions {
   pidPath?: string;
   /** Drive rendering on an internal timer. Default `true`; tests pass `false` and call {@link ConductDaemon.renderBlock}. */
   autoRender?: boolean;
+  /** Liveness marker the hook touches each turn. Required for the idle watchdog. */
+  heartbeatPath?: string;
+  /** Exit after this long with no heartbeat. `0`/unset disables the watchdog. */
+  idleTimeoutMs?: number;
+  /** Called when the watchdog expires — the entrypoint shuts the process down. */
+  onIdle?: () => void;
+  /** Poll the watchdog on a timer. Default `true`; tests pass `false` and call {@link ConductDaemon.isIdle}. */
+  autoWatchdog?: boolean;
 }
 
 /**
@@ -31,6 +40,8 @@ export class ConductDaemon {
   private readonly conductor: Conductor;
   private readonly opts: DaemonOptions;
   private watcher: FSWatcher | undefined;
+  private idleTimer: ReturnType<typeof setInterval> | undefined;
+  private startedAt = 0;
   private pumping = false;
   private running = false;
 
@@ -57,6 +68,7 @@ export class ConductDaemon {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.startedAt = Date.now();
 
     try {
       mkdirSync(dirname(this.opts.commandPath), { recursive: true });
@@ -85,6 +97,44 @@ export class ConductDaemon {
     }
 
     if (this.opts.autoRender !== false) this.startPump();
+    if (this.opts.autoWatchdog !== false) this.startWatchdog();
+  }
+
+  /**
+   * Poll the heartbeat and fire `onIdle` once it goes stale. The check period is
+   * a quarter of the timeout (clamped to 1–30s) so expiry is detected promptly
+   * without spinning: the watchdog exists to bound how long an orphaned daemon
+   * can play, not to stop it on the exact second.
+   */
+  private startWatchdog(): void {
+    const timeout = this.opts.idleTimeoutMs ?? 0;
+    if (timeout <= 0 || !this.opts.heartbeatPath) return;
+
+    const period = Math.max(1_000, Math.min(30_000, Math.floor(timeout / 4)));
+    this.idleTimer = setInterval(() => {
+      if (this.isIdle()) this.opts.onIdle?.();
+    }, period);
+    // Don't hold the event loop open on the watchdog alone — the render pump is
+    // what should keep this process alive.
+    this.idleTimer.unref?.();
+  }
+
+  /**
+   * Has the owning session stopped heartbeating for longer than the timeout?
+   *
+   * A missing heartbeat falls back to the daemon's own start time rather than
+   * counting as infinitely old, and a heartbeat older than our start time is
+   * treated as our start time. Both cases are the same situation — a daemon
+   * launched by `/conduct start` before the session's next hook fires — and both
+   * must give it a full timeout window to see a fresh stamp.
+   */
+  isIdle(now: number = Date.now()): boolean {
+    const timeout = this.opts.idleTimeoutMs ?? 0;
+    if (timeout <= 0 || !this.opts.heartbeatPath) return false;
+
+    const age = heartbeatAgeMs(this.opts.heartbeatPath, now);
+    const lastSeen = age === null ? this.startedAt : Math.max(now - age, this.startedAt);
+    return now - lastSeen >= timeout;
   }
 
   /**
@@ -152,6 +202,11 @@ export class ConductDaemon {
     if (!this.running) return;
     this.running = false;
     this.pumping = false; // the pump loop checks these flags and exits
+
+    if (this.idleTimer) {
+      clearInterval(this.idleTimer);
+      this.idleTimer = undefined;
+    }
 
     if (this.watcher) {
       try {
