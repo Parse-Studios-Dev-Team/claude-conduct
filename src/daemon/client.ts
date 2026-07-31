@@ -19,6 +19,19 @@ export function sendTier(commandPath: string, tier: Tier, now: number = Date.now
   sendCommand(commandPath, { tier }, now);
 }
 
+/**
+ * CC-11: resolve to `tier`, hold `holdMs`, then fall silent. The daemon owns the
+ * timing — the hook writes this and exits immediately.
+ */
+export function sendCadence(
+  commandPath: string,
+  tier: Tier,
+  holdMs: number,
+  now: number = Date.now(),
+): void {
+  sendCommand(commandPath, { tier, holdMs }, now);
+}
+
 /** Set the daemon's master volume `0..1` live. Called by `/conduct volume` and mute. */
 export function sendVolume(commandPath: string, volume: number, now: number = Date.now()): void {
   sendCommand(commandPath, { volume }, now);

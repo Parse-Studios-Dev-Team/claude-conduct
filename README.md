@@ -119,6 +119,33 @@ Once hooks are installed, control playback from within Claude Code:
 `mute` and `volume` apply to the running daemon immediately (and persist in
 `conduct.config.json`). Same commands work from a shell: `npm run conduct -- status`.
 
+## Live mode (CC-11)
+
+By default live playback is **presence + cadence**, not a continuous gradient:
+
+- **Silence means it's your turn.** Music plays while Claude is working and stops
+  when it hands back. That inversion is the point — when the drone is always on,
+  starting and stopping says nothing; this way every transition carries a bit.
+- **A cadence marks the end of a turn.** The ensemble resolves to root-and-fifth,
+  holds `cadenceHoldMs`, then fades out. Deliberately small: an ending that
+  swells is a fanfare, and a fanfare every turn is something you mute.
+- **Three coarse intensity steps**, not six, so a long grind still sounds unlike
+  a quick answer without the music becoming a second statusline for context you
+  can already see.
+
+The useful case is when you're *not* looking: you alt-tab away, and the music
+tells you whether it's still going. It also has to coexist with whatever you're
+already listening to, which a drone competing with Spotify never could.
+
+Set `live.mode` to `gradient` for the original always-on mapping:
+
+```json
+{ "live": { "mode": "gradient" } }
+```
+
+Recording is unaffected by either choice — it always stores the full gradient, so
+CC-10 has the whole arc to render from.
+
 ## Recording & playground (CC-9)
 
 Every session writes a timeline — one line per turn — to

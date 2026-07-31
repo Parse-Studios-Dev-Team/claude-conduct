@@ -206,9 +206,12 @@ test('the file watcher applies a tier written while the daemon is running', asyn
     const expected = tierToGains({ ensembleSize: 4, richness: 2 });
     sendTier(commandPath, { ensembleSize: 4, richness: 2 });
 
-    // Poll for the watch event (fs.watch latency varies); generous timeout.
+    // Poll for the watch event. `fs.watch` latency is unbounded in principle and
+    // stretches badly when the machine is busy — this failed twice while a
+    // concurrent `tsc` was running at the old 3s budget. 10s is still a latency
+    // bound, not a correctness one: the assertion below is unchanged.
     let applied = false;
-    for (let i = 0; i < 150 && !applied; i++) {
+    for (let i = 0; i < 500 && !applied; i++) {
       await sleep(20);
       try {
         assert.deepEqual(daemon.targets, expected);

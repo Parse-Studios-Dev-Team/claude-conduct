@@ -1,10 +1,11 @@
 import { extractTurnFacts, isReadable } from '../extractUsage';
 import { mapToTier } from '../mapToTier';
 import { recordTier, clearSession, noteUnreadable, unreadableCount } from '../state';
-import { sendTier } from '../daemon/client';
+import { sendTier, sendCadence } from '../daemon/client';
 import { startDaemon, stopDaemon } from './daemonControl';
 import { touchHeartbeat, clearHeartbeat } from './heartbeat';
 import { recordTurn, finalizeRecording, pruneRecordings } from '../recorder';
+import { liveTier, phaseFor } from '../liveMode';
 import type { Tier } from '../types';
 import type { ConductConfig } from './config';
 import type { ConductPaths } from './paths';
@@ -29,6 +30,7 @@ export interface HandlerDeps {
   noteUnreadable: typeof noteUnreadable;
   unreadableCount: typeof unreadableCount;
   sendTier: typeof sendTier;
+  sendCadence: typeof sendCadence;
   startDaemon: typeof startDaemon;
   stopDaemon: typeof stopDaemon;
   touchHeartbeat: typeof touchHeartbeat;
@@ -45,6 +47,7 @@ export const realDeps: HandlerDeps = {
   noteUnreadable,
   unreadableCount,
   sendTier,
+  sendCadence,
   startDaemon,
   stopDaemon,
   touchHeartbeat,
@@ -55,7 +58,7 @@ export const realDeps: HandlerDeps = {
 };
 
 export interface HandleResult {
-  action: 'start' | 'stop' | 'update' | 'noop' | 'unreadable';
+  action: 'start' | 'stop' | 'update' | 'noop' | 'unreadable' | 'cadence';
   /** The tier sent to the daemon this event, or `null` if nothing was emitted. */
   emitted: Tier | null;
 }
@@ -128,16 +131,32 @@ export function handleEvent(
         return { action: 'unreadable', emitted: null };
       }
 
+      // The *recorded* tier is always the gradient one, whatever live mode is
+      // doing: a recording describes the session's shape for CC-10 to render,
+      // and it must not inherit live mode's deliberate flattening any more than
+      // it inherits muting.
       const mapped = mapToTier(facts, config.tier);
-      const tier = config.mute ? SILENT_TIER : mapped;
-
-      // Record the *mapped* tier, not the muted one: a recording describes what
-      // the session would sound like, so muting playback must not flatten the
-      // timeline into silence. Recording is also independent of the dedupe —
-      // every turn gets a line, because the playground re-scores from the raw
-      // axes and needs them all, not just the turns that changed tier.
       if (config.recordings.enabled) {
         deps.recordTurn(paths.recordingsDir, input.session_id, facts, mapped);
+      }
+
+      const phase = phaseFor(input.hook_event_name, facts.endsTurn);
+      const presence = config.live.mode === 'presence';
+      const played = presence ? liveTier(phase, facts, config.live) : mapped;
+      const tier = config.mute ? SILENT_TIER : played;
+
+      // A cadence always goes out, even when it matches the last tier: what
+      // makes it a cadence is the fall to silence that follows, and the dedupe
+      // only knows about the tier itself. Recording silence as the last-emitted
+      // tier is what lets the *next* working turn re-emit and lift the music
+      // back up — otherwise the daemon would sit silent for the rest of the
+      // session, having gone quiet on a timer the state layer never saw.
+      if (presence && phase === 'cadence') {
+        if (!config.mute) {
+          deps.sendCadence(paths.commandPath, tier, config.live.cadenceHoldMs);
+        }
+        deps.recordTier(paths.statePath, input.session_id, SILENT_TIER);
+        return { action: 'cadence', emitted: config.mute ? null : tier };
       }
 
       const { emit } = deps.recordTier(paths.statePath, input.session_id, tier);

@@ -11,5 +11,12 @@
     "richnessThresholds": [50, 85],
     "modelBump": { "claude-opus": 1 }
   },
-  "contextWindows": {}
+  "contextWindows": {},
+  "live": {
+    "mode": "presence",
+    "levels": [2, 3, 5],
+    "steps": [1500, 12000],
+    "cadenceHoldMs": 2500
+  },
+  "recordings": { "enabled": true, "keep": 20 }
 }
