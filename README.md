@@ -88,9 +88,17 @@ edit. `$CONDUCT_CONFIG` overrides the path.
 | `volume` | daemon master gain `0..1` |
 | `silent` | force headless output (no `speaker`) |
 | `crossfadeMs` | tier crossfade time |
+| `idleTimeoutMs` | stop the daemon after this long with no hook activity (default 15min; `0` = never) |
 | `tier` | threshold overrides for `mapToTier` |
 | `contextWindows` | per-model context sizes for `extractUsage` |
 | `stemsDir` | directory of real WAV stems to play (else synth placeholders) |
+
+> **Orphaned daemons:** the daemon is detached, so it survives Claude Code
+> exiting. `SessionEnd` normally stops it, but that hook doesn't run when the
+> window is closed, the process is `kill -9`'d, or it crashes — which used to
+> leave music looping with no session behind it. The hook now stamps
+> `conduct.heartbeat` every turn and the daemon exits once that goes stale
+> (`idleTimeoutMs`). `/conduct stop` still stops it immediately.
 
 > **Audio:** the daemon plays synth placeholder tones out of the box. To use real
 > audio, drop a directory of 6 WAV stems in and set `stemsDir` — see
@@ -111,6 +119,71 @@ Once hooks are installed, control playback from within Claude Code:
 `mute` and `volume` apply to the running daemon immediately (and persist in
 `conduct.config.json`). Same commands work from a shell: `npm run conduct -- status`.
 
+## Modes (CC-13)
+
+`mode` decides what a session is for. Live and playback are not two settings on
+one engine — they want opposite things. Live has to be ignorable and legible;
+playback has to be interesting and has no legibility requirement at all.
+
+| `mode` | while you work | when the session ends |
+| --- | --- | --- |
+| `live` (default) | presence + cadence | — |
+| `playback` | silent | renders a piece |
+| `both` | presence + cadence | renders a piece |
+| `off` | silent | — |
+
+Every mode still **records**, because the recording is what playback is made of.
+
+```jsonc
+{
+  "mode": "playback",
+  "playback": {
+    "seconds": 90,      // target length regardless of how long the session ran
+    "sweepStale": true, // also render sessions whose SessionEnd never fired
+    "keep": 20          // renders are ~15 MB each — this is the real disk cost
+  }
+}
+```
+
+Renders land in `<runtime>/renders/<session_id>.wav`, beside the recordings.
+`SessionEnd` triggers them, spawned detached so the hook returns immediately.
+
+`SessionEnd` doesn't always fire — closing the window or killing the process
+skips it, which is the same gap the idle watchdog exists for. So playback mode
+also sweeps for recordings that have settled without producing a render, rather
+than trusting one event. Render anything on demand with:
+
+```bash
+npm run conduct -- render          # newest recording
+```
+
+## Live mode (CC-11)
+
+By default live playback is **presence + cadence**, not a continuous gradient:
+
+- **Silence means it's your turn.** Music plays while Claude is working and stops
+  when it hands back. That inversion is the point — when the drone is always on,
+  starting and stopping says nothing; this way every transition carries a bit.
+- **A cadence marks the end of a turn.** The ensemble resolves to root-and-fifth,
+  holds `cadenceHoldMs`, then fades out. Deliberately small: an ending that
+  swells is a fanfare, and a fanfare every turn is something you mute.
+- **Three coarse intensity steps**, not six, so a long grind still sounds unlike
+  a quick answer without the music becoming a second statusline for context you
+  can already see.
+
+The useful case is when you're *not* looking: you alt-tab away, and the music
+tells you whether it's still going. It also has to coexist with whatever you're
+already listening to, which a drone competing with Spotify never could.
+
+Set `live.mode` to `gradient` for the original always-on mapping:
+
+```json
+{ "live": { "mode": "gradient" } }
+```
+
+Recording is unaffected by either choice — it always stores the full gradient, so
+CC-10 has the whole arc to render from.
+
 ## Recording & playground (CC-9)
 
 Every session writes a timeline — one line per turn — to
@@ -118,13 +191,20 @@ Every session writes a timeline — one line per turn — to
 `SessionEnd`:
 
 ```jsonl
-{"t":1785088448966,"tok":1783,"ctx":60.4,"model":"claude-opus-5","tier":{"e":5,"r":2,"s":1}}
-{"type":"summary","version":1,"turns":4,"durationMs":150,"peakTier":{"e":5,"r":2,"s":1}, ...}
+{"t":1785088448966,"tok":1783,"ctx":60.4,"model":"claude-opus-5","tier":{"e":5,"r":2,"s":1},"out":1153,"ef":"high","sh":"tool","tl":"exec","end":true}
+{"type":"summary","version":2,"turns":4,"durationMs":150,"peakTier":{"e":5,"r":2,"s":1}, ...}
 ```
 
 Recording is independent of playback — a muted session still records the tier it
 *would* have played, so muting never flattens the timeline. Turn it off or change
 retention under `recordings` in the config.
+
+**Format v2 (CC-12)** adds the axes that make turns sound different from each
+other, so playback never has to go back to Claude Code's own transcript:
+`out` (output tokens alone), `ef` (reasoning effort), `sh` (`think`/`tool`/`text`),
+`tl` (`read`/`write`/`exec`) and `end` (`stop_reason: end_turn`). Absent axes are
+omitted rather than written as `null`. v1 recordings still load — they just carry
+no axes, and `render-session` falls back to the transcript for them.
 
 Then replay and tune it by ear:
 
@@ -138,13 +218,47 @@ played back through the same voices the daemon uses, and move the thresholds
 imported from `src/`, not reimplemented. Export writes a `conduct.config.json`
 the live engine loads unchanged.
 
-With a user-scope install, recordings live outside the project, so point at them:
+### The score panel
 
-```bash
-npm run playground -- --recordings ~/.claude/conduct/<project-slug>/recordings
+Under the transport, a live readout of **what the engine is playing right now**:
+the chord the sustained layers spell, every voice with its current pitch, and the
+bell's position in its figure.
+
+| shows | meaning |
+| ----- | ------- |
+| `Dmaj7` | the chord the *sustained* layers spell — struck voices are melody, not harmony |
+| `D major` | the drones are mid-drift and the stack has no chord name; it says the key instead |
+| `F♯4 → E4` | that voice is crossfading between two drift pitches |
+| bell figure | the eight strikes, with the one currently sounding lit |
+
+It's derived from `driftWeight` and the voice table in `src/audio/synth.ts`, not
+tracked separately — so it can't disagree with what you hear. Gains come off the
+mixer, so meters show the mix *mid-crossfade*, not the tier that was requested.
+
+### Session labels
+
+The picker lists sessions by date and opening prompt rather than by UUID:
+
+```
+Jul 26, 05:46 PM — Ok so lets enable it and test it with our current chat.
 ```
 
-Flags: `--port <n>`, `--no-open`, `--recordings <dir>`.
+Recordings stay numbers-only ([`recorder.ts`](src/recorder.ts)) — copying
+conversation text into them would duplicate the transcript and age badly. Instead
+[`sessionTitle.ts`](src/sessionTitle.ts) looks the session id up in Claude Code's
+own transcripts (`~/.claude/projects/<project>/<session-id>.jsonl`) and reads the
+first real user prompt, so labels work retroactively for recordings you already
+have. Nothing leaves the machine; the excerpt is served only to the local page.
+
+Prose is preferred over a slash command even when the command came first — a
+session that opens with `/conduct start` is better identified by the question
+asked two turns later. Sessions whose transcript has been deleted keep their id.
+
+Recordings are found automatically: the playground checks the project-local
+`.claude/recordings` and the user-scope `~/.claude/conduct/<project>/recordings`,
+preferring whichever actually has sessions. Override with `--recordings <dir>`.
+
+Flags: `--port <n>` (or `$PORT`), `--no-open`, `--recordings <dir>`.
 
 ## Development
 

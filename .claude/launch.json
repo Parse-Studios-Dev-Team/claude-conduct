@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "conduct-playground",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "scripts/playground.ts", "--no-open"],
+      "autoPort": true
+    }
+  ]
+}

@@ -96,9 +96,14 @@ const PAN_UPDATE_FRAMES = 64;
 
 export class Mixer {
   readonly sampleRate: number;
-  readonly crossfadeMs: number;
-  /** Max gain change per frame; a full crossfade takes `crossfadeMs`. */
-  readonly gainStepPerFrame: number;
+  /**
+   * Current crossfade time. Fixed for the daemon, which fades every change at
+   * one rate; the session renderer (CC-10) varies it per span so a thinking
+   * stretch can swell over seconds while a burst of tool calls snaps.
+   */
+  crossfadeMs: number;
+  /** Max gain change per frame; a full crossfade takes {@link crossfadeMs}. */
+  gainStepPerFrame: number;
 
   private masterGain: number;
   private readonly pcms: Float32Array[];
@@ -135,6 +140,17 @@ export class Mixer {
 
     const crossfadeSamples = Math.max(1, Math.round((this.crossfadeMs / 1000) * this.sampleRate));
     this.gainStepPerFrame = 1 / crossfadeSamples;
+  }
+
+  /**
+   * Retune the crossfade time mid-render. Only the *rate* of the ramp changes —
+   * gains keep chasing their targets from wherever they are — so this stays
+   * click-free by the same construction as the constructor path.
+   */
+  setCrossfadeMs(ms: number): void {
+    this.crossfadeMs = Math.max(1, ms);
+    const samples = Math.max(1, Math.round((this.crossfadeMs / 1000) * this.sampleRate));
+    this.gainStepPerFrame = 1 / samples;
   }
 
   get stemCount(): number {

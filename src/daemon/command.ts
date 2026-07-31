@@ -9,6 +9,14 @@ import type { Tier } from '../types';
 export interface Command {
   tier?: Tier;
   volume?: number;
+  /**
+   * CC-11 cadence: settle on `tier`, hold this long, then fade to silence.
+   *
+   * The daemon has to own this because the hook cannot — it is a short-lived
+   * process that must exit immediately and can never block a turn, so "play this,
+   * then stop" is not something it can carry out itself.
+   */
+  holdMs?: number;
 }
 
 function clamp01(n: number): number {
@@ -28,6 +36,9 @@ export function serializeCommand(command: Command, now: number = Date.now()): st
   }
   if (typeof command.volume === 'number' && Number.isFinite(command.volume)) {
     payload.volume = clamp01(command.volume);
+  }
+  if (typeof command.holdMs === 'number' && Number.isFinite(command.holdMs) && command.holdMs > 0) {
+    payload.holdMs = command.holdMs;
   }
   return `${JSON.stringify(payload)}\n`;
 }
@@ -65,6 +76,11 @@ export function parseCommand(text: string): Command | null {
   const volume = (parsed as { volume?: unknown }).volume;
   if (typeof volume === 'number' && Number.isFinite(volume)) {
     command.volume = clamp01(volume);
+  }
+
+  const holdMs = (parsed as { holdMs?: unknown }).holdMs;
+  if (typeof holdMs === 'number' && Number.isFinite(holdMs) && holdMs > 0) {
+    command.holdMs = holdMs;
   }
 
   if (command.tier === undefined && command.volume === undefined) return null;
