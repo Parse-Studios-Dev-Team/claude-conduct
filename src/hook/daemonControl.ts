@@ -10,7 +10,8 @@ import {
   statSync,
   ftruncateSync,
 } from 'node:fs';
-import { join, isAbsolute, dirname } from 'node:path';
+import { join, isAbsolute, dirname, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ConductConfig } from './config';
 import type { ConductPaths } from './paths';
 
@@ -36,11 +37,31 @@ export function isDaemonRunning(pidPath: string): boolean {
   }
 }
 
+/**
+ * Where Conduct itself is installed — the directory containing `dist/` and `bin/`.
+ *
+ * Deliberately **not** `paths.baseDir`. That is the project the Claude Code
+ * session is running in, which coincides with the install only when Conduct is
+ * used inside its own checkout. A user-scope install points the hooks at this
+ * repo's `dist/conduct-hook.mjs` from *every* project, so anchoring the daemon
+ * entrypoint to the session's directory looked for `<that project>/bin/conduct-
+ * daemon.ts` and died instantly with ERR_MODULE_NOT_FOUND — silently, because
+ * the spawn itself succeeds and every failure here is swallowed by design.
+ *
+ * Resolved from this module's own location so it survives both shapes it runs
+ * in: inlined into `dist/conduct-*.mjs` (bundled), or `src/hook/` (tsx/tests).
+ */
+function installRoot(): string {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  return basename(moduleDir) === 'dist' ? dirname(moduleDir) : join(moduleDir, '..', '..');
+}
+
 /** Prefer the fast bundled entrypoint (`dist/conduct-daemon.mjs`), else run the TS source via tsx. */
-function resolveDaemonEntry(baseDir: string): { command: string; args: string[] } {
-  const bundled = join(baseDir, 'dist', 'conduct-daemon.mjs');
+function resolveDaemonEntry(): { command: string; args: string[] } {
+  const root = installRoot();
+  const bundled = join(root, 'dist', 'conduct-daemon.mjs');
   if (existsSync(bundled)) return { command: process.execPath, args: [bundled] };
-  return { command: 'npx', args: ['tsx', join(baseDir, 'bin', 'conduct-daemon.ts')] };
+  return { command: 'npx', args: ['tsx', join(root, 'bin', 'conduct-daemon.ts')] };
 }
 
 /**
@@ -136,7 +157,7 @@ export function startDaemon(paths: ConductPaths, config: ConductConfig): void {
 
   let spawned = false;
   try {
-    const { command, args } = resolveDaemonEntry(paths.baseDir);
+    const { command, args } = resolveDaemonEntry();
 
     let out: number | 'ignore' = 'ignore';
     try {
@@ -152,17 +173,25 @@ export function startDaemon(paths: ConductPaths, config: ConductConfig): void {
       CONDUCT_VOLUME: String(config.volume),
       CONDUCT_CROSSFADE_MS: String(config.crossfadeMs),
       CONDUCT_SILENT: config.silent ? '1' : '0',
+      CONDUCT_HEARTBEAT: paths.heartbeatPath,
+      CONDUCT_IDLE_TIMEOUT_MS: String(config.idleTimeoutMs),
     };
     if (config.stemsDir) {
+      // Relative to the config that declared it, not to the session's project.
+      // Identical for a project-local install (the config *is* at baseDir), and
+      // the only reading that means anything for a shared user-scope config.
       env.CONDUCT_STEMS_DIR = isAbsolute(config.stemsDir)
         ? config.stemsDir
-        : join(paths.baseDir, config.stemsDir);
+        : join(dirname(paths.configPath), config.stemsDir);
     }
 
     const child = spawn(command, args, {
       detached: true,
       stdio: ['ignore', out, out],
       env,
+      // The daemon takes every path from the environment, but its optional
+      // native `speaker` dep resolves from the install — never the session cwd.
+      cwd: installRoot(),
     });
     child.unref();
 

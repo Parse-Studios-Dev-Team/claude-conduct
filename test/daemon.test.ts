@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { Conductor } from '../src/daemon/conductor';
 import { ConductDaemon } from '../src/daemon/server';
 import { sendTier, sendCommand } from '../src/daemon/client';
 import { tierToGains, stemCount, DEFAULT_LAYOUT } from '../src/audio/tierGains';
 import { synthesizeStems } from '../src/audio/synth';
+import { touchHeartbeat } from '../src/hook/heartbeat';
 import type { Sink } from '../src/audio/sink';
 
 class CapturingSink implements Sink {
@@ -219,5 +220,118 @@ test('the file watcher applies a tier written while the daemon is running', asyn
 
     daemon.stop();
     assert.ok(applied, 'watcher applied the command within the timeout');
+  });
+});
+
+// --- idle watchdog ----------------------------------------------------------
+//
+// The daemon is detached and only ever stops on an explicit signal, so a session
+// that dies without firing SessionEnd used to leave it looping forever. These
+// cover the heartbeat-age rule that bounds that.
+
+test('the watchdog is off unless both a heartbeat path and a timeout are given', () => {
+  withTmp(({ commandPath, pidPath }) => {
+    const noTimeout = new ConductDaemon(stems(), new CapturingSink(), {
+      commandPath,
+      pidPath,
+      autoRender: false,
+      autoWatchdog: false,
+      heartbeatPath: join(dirname(pidPath), 'conduct.heartbeat'),
+      idleTimeoutMs: 0,
+    });
+    noTimeout.start();
+    assert.equal(noTimeout.isIdle(Date.now() + 86_400_000), false, '0 disables the watchdog');
+    noTimeout.stop();
+
+    const noPath = new ConductDaemon(stems(), new CapturingSink(), {
+      commandPath,
+      pidPath,
+      autoRender: false,
+      autoWatchdog: false,
+      idleTimeoutMs: 1_000,
+    });
+    noPath.start();
+    assert.equal(noPath.isIdle(Date.now() + 86_400_000), false, 'nothing to measure without a heartbeat path');
+    noPath.stop();
+  });
+});
+
+test('a stale heartbeat goes idle; a fresh one does not', () => {
+  withTmp(({ commandPath, pidPath }) => {
+    const heartbeatPath = join(dirname(pidPath), 'conduct.heartbeat');
+    const daemon = new ConductDaemon(stems(), new CapturingSink(), {
+      commandPath,
+      pidPath,
+      autoRender: false,
+      autoWatchdog: false,
+      heartbeatPath,
+      idleTimeoutMs: 60_000,
+    });
+    daemon.start();
+    touchHeartbeat(heartbeatPath);
+
+    const now = Date.now();
+    assert.equal(daemon.isIdle(now + 59_000), false, 'still within the window');
+    assert.equal(daemon.isIdle(now + 61_000), true, 'session stopped heartbeating');
+    daemon.stop();
+  });
+});
+
+test('a missing heartbeat still grants a full window from daemon start', () => {
+  withTmp(({ commandPath, pidPath }) => {
+    // `/conduct start` can boot the daemon before the session's next hook fires,
+    // so there is no marker to read yet. Expiring immediately would kill the
+    // music the instant the user asked for it.
+    const heartbeatPath = join(dirname(pidPath), 'conduct.heartbeat');
+    const daemon = new ConductDaemon(stems(), new CapturingSink(), {
+      commandPath,
+      pidPath,
+      autoRender: false,
+      autoWatchdog: false,
+      heartbeatPath,
+      idleTimeoutMs: 60_000,
+    });
+    daemon.start();
+
+    const now = Date.now();
+    assert.equal(existsSync(heartbeatPath), false, 'no marker written yet');
+    assert.equal(daemon.isIdle(now + 59_000), false, 'measured from boot, not treated as infinitely old');
+    assert.equal(daemon.isIdle(now + 61_000), true, 'but it does still expire');
+    daemon.stop();
+  });
+});
+
+test('a heartbeat left over from a previous session does not kill a fresh daemon', () => {
+  withTmp(({ commandPath, pidPath }) => {
+    const heartbeatPath = join(dirname(pidPath), 'conduct.heartbeat');
+    touchHeartbeat(heartbeatPath);
+    utimesSync(heartbeatPath, new Date(Date.now() - 3_600_000), new Date(Date.now() - 3_600_000));
+
+    const daemon = new ConductDaemon(stems(), new CapturingSink(), {
+      commandPath,
+      pidPath,
+      autoRender: false,
+      autoWatchdog: false,
+      heartbeatPath,
+      idleTimeoutMs: 60_000,
+    });
+    daemon.start();
+    assert.equal(daemon.isIdle(Date.now() + 59_000), false, 'the daemon start time floors the age');
+    daemon.stop();
+  });
+});
+
+test('stop() clears the watchdog timer so the process can exit', () => {
+  withTmp(({ commandPath, pidPath }) => {
+    const daemon = new ConductDaemon(stems(), new CapturingSink(), {
+      commandPath,
+      pidPath,
+      autoRender: false,
+      heartbeatPath: join(dirname(pidPath), 'conduct.heartbeat'),
+      idleTimeoutMs: 4_000,
+    });
+    daemon.start();
+    assert.doesNotThrow(() => daemon.stop());
+    assert.equal(daemon.isRunning, false);
   });
 });

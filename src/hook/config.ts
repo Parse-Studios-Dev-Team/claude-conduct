@@ -17,6 +17,12 @@ export interface ConductConfig {
   silent: boolean;
   /** Crossfade time in ms for tier changes. */
   crossfadeMs: number;
+  /**
+   * Shut the daemon down after this long with no hook activity, so a session
+   * that dies without firing `SessionEnd` can't leave music looping forever.
+   * `0` disables the watchdog (the daemon then only stops on an explicit signal).
+   */
+  idleTimeoutMs: number;
   /** Threshold overrides passed to `mapToTier` (see {@link TierConfig}). */
   tier: Partial<TierConfig>;
   /** Per-model context-window sizes passed to `extractUsage`. */
@@ -40,6 +46,10 @@ export const DEFAULT_CONFIG: ConductConfig = {
   volume: 0.8,
   silent: false,
   crossfadeMs: 1500,
+  // 15 minutes: comfortably longer than any gap between hooks in a session you
+  // are still using (a single tool call resets it), short enough that an
+  // orphaned daemon stops well before it becomes a mystery.
+  idleTimeoutMs: 15 * 60 * 1000,
   tier: {},
   contextWindows: {},
   recordings: { enabled: true, keep: 20 },
@@ -78,6 +88,11 @@ export function loadConfig(configPath: string): ConductConfig {
   }
   if (typeof parsed.crossfadeMs === 'number' && Number.isFinite(parsed.crossfadeMs) && parsed.crossfadeMs > 0) {
     config.crossfadeMs = parsed.crossfadeMs;
+  }
+  // `0` is meaningful here (disable), so this accepts any finite non-negative
+  // number rather than reusing the `> 0` guard above.
+  if (typeof parsed.idleTimeoutMs === 'number' && Number.isFinite(parsed.idleTimeoutMs) && parsed.idleTimeoutMs >= 0) {
+    config.idleTimeoutMs = parsed.idleTimeoutMs;
   }
   if (isPlainObject(parsed.tier)) config.tier = parsed.tier as Partial<TierConfig>;
   if (isPlainObject(parsed.contextWindows)) {
