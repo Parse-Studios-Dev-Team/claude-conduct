@@ -85,6 +85,38 @@
   .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
   .swatch { width: 0.8rem; height: 0.55rem; border-radius: 2px; }
 
+  .load-title { font-family: var(--display); font-size: 0.95rem; color: var(--text); line-height: 1.4; margin-bottom: 0.3rem; }
+  .load-facts { font-family: var(--data); font-size: 0.72rem; color: var(--text-faint); }
+
+  /* score — what the engine is actually playing right now */
+  .score { border-top: var(--rule); padding: 1.15rem 1.4rem 1.3rem; display: flex; flex-direction: column; gap: 1rem; }
+  .score-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; }
+  .score-chord { font-family: var(--display); font-size: 2rem; line-height: 1.1; font-weight: 600; letter-spacing: -0.01em; }
+  .score-chord.unnamed { color: var(--text-dim); font-size: 1.35rem; }
+  .score-notes { font-family: var(--data); font-size: 0.8rem; color: var(--text-dim); letter-spacing: 0.04em; }
+  .score-loop { min-width: 8rem; display: flex; flex-direction: column; gap: 0.3rem; }
+  .score-loop-bar { height: 3px; background: var(--surface-sunk); border-radius: 2px; overflow: hidden; }
+  .score-loop-bar > i { display: block; height: 100%; width: 0; background: var(--brass); }
+  .score-loop-label { font-family: var(--data); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-faint); text-align: right; }
+
+  .voices { display: flex; flex-direction: column; gap: 0.3rem; }
+  .voice { display: grid; grid-template-columns: 3.6rem 4.2rem 1fr 2.6rem; align-items: center; gap: 0.7rem; padding: 0.28rem 0; opacity: 0.32; transition: opacity 0.18s; }
+  .voice.on { opacity: 1; }
+  .voice-role { font-family: var(--data); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
+  .voice-note { font-family: var(--display); font-size: 1.02rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .voice-note .toward { font-size: 0.75rem; font-weight: 400; color: var(--text-faint); margin-left: 0.25rem; }
+  .voice-meter { height: 6px; background: var(--surface-sunk); border-radius: 3px; overflow: hidden; }
+  .voice-meter > i { display: block; height: 100%; width: 0; background: var(--brass); transition: width 0.12s linear; }
+  .voice.struck .voice-meter > i { background: var(--good); }
+  .voice-gain { font-family: var(--data); font-size: 0.7rem; color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
+
+  .bell-figure { display: flex; align-items: center; gap: 0.8rem; border-top: 1px solid var(--line-soft); padding-top: 0.85rem; flex-wrap: wrap; }
+  .bell-label { font-family: var(--data); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-faint); }
+  .bell-cells { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+  .bell-cell { font-family: var(--data); font-size: 0.72rem; padding: 0.18rem 0.42rem; border: 1px solid var(--line); border-radius: 3px; color: var(--text-dim); min-width: 2.6rem; text-align: center; }
+  .bell-cell.now { background: var(--brass); border-color: var(--brass); color: var(--surface); font-weight: 600; }
+  .bell-figure.off { opacity: 0.32; }
+
   .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); border-top: var(--rule); }
   .metric { padding: 1rem 1.4rem; border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 0.15rem; }
   .metric:last-child { border-right: 0; }
@@ -163,6 +195,24 @@
           <span><i class="swatch" style="background: var(--brass-wash); border: 1px solid var(--brass)"></i>richness / pad</span>
           <span><i class="swatch" style="background: var(--good)"></i>context&nbsp;%</span>
           <span><i class="swatch" style="background: var(--text)"></i>playhead</span>
+        </div>
+      </div>
+
+      <div class="score" id="score">
+        <div class="score-head">
+          <div>
+            <div class="score-chord" id="score-chord">—</div>
+            <div class="score-notes" id="score-notes">press play to hear the voicing</div>
+          </div>
+          <div class="score-loop">
+            <div class="score-loop-bar"><i id="score-loop-fill"></i></div>
+            <div class="score-loop-label" id="score-loop-label">loop</div>
+          </div>
+        </div>
+        <div class="voices" id="score-voices"></div>
+        <div class="bell-figure">
+          <span class="bell-label">bell figure</span>
+          <div class="bell-cells" id="score-bell"></div>
         </div>
       </div>
 

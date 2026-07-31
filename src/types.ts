@@ -1,3 +1,12 @@
+/** Reasoning effort, as it appears on a transcript's top-level `.effort`. */
+export type Effort = 'high' | 'max' | 'xhigh';
+
+/** The kind of work a turn was mostly made of. */
+export type Shape = 'think' | 'tool' | 'text';
+
+/** The three tool families that sound meaningfully different from each other. */
+export type ToolKind = 'read' | 'write' | 'exec';
+
 /**
  * Session usage snapshot derived from a Claude Code transcript.
  *
@@ -40,6 +49,37 @@ export interface Usage {
    * classified) so downstream consumers can map tiers however they like.
    */
   model: string | null;
+}
+
+/**
+ * Everything one assistant turn tells us, read in a single pass (CC-12).
+ *
+ * A superset of {@link Usage}: the tier mapper still takes only the three usage
+ * fields, but the recorder stores all of these so playback never has to go back
+ * to Claude Code's transcript for the axes that make turns sound different from
+ * each other.
+ */
+export interface TurnFacts extends Usage {
+  /**
+   * `output_tokens` alone, kept alongside {@link Usage.tokens} rather than
+   * replacing it. Input is 97–100% cache reads in a real session, so the summed
+   * total mostly measures how long the conversation has run; output alone spans
+   * 172 → 22,848 across measured sessions and is what "how much work was this
+   * turn" actually looks like.
+   */
+  outputTokens: number;
+
+  /** Reasoning effort from the transcript's top-level `.effort`. */
+  effort: Effort | null;
+
+  /** Which kind of content block dominated the turn. */
+  shape: Shape;
+
+  /** Family of the first tool the turn ran, when it ran one. */
+  tool: ToolKind | null;
+
+  /** `stop_reason === 'end_turn'` — Claude handed control back on this turn. */
+  endsTurn: boolean;
 }
 
 /**
