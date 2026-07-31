@@ -26,6 +26,64 @@ function readPid(pidPath: string): number | null {
 }
 
 /** Is a daemon process currently alive for this project? */
+/**
+ * CC-16 — what the pidfile actually says, as opposed to what it implies.
+ *
+ * `ready` is written by the daemon itself once its sink and render pump are up.
+ * Its absence means the file holds a *launcher's* pid: someone called `spawn`,
+ * got a pid back, and wrote it down. That is not the same as a daemon, and
+ * conflating the two is what let CC-14 report "Playing" into silence for days.
+ */
+export function readDaemonStatus(pidPath: string): { pid: number | null; ready: boolean } {
+  try {
+    const text = readFileSync(pidPath, 'utf8').trim();
+    const pid = Number.parseInt(text, 10);
+    return {
+      pid: Number.isInteger(pid) && pid > 0 ? pid : null,
+      ready: /\bready\b/.test(text),
+    };
+  } catch {
+    return { pid: null, ready: false };
+  }
+}
+
+/** Block the calling thread for `ms`. Only ever used by the CLI, never the hook. */
+function sleepSync(ms: number): void {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    /* SharedArrayBuffer unavailable — fall through and spin the poll instead */
+  }
+}
+
+/**
+ * Wait for the daemon to confirm it booted, returning whether it did (CC-16).
+ *
+ * Polls for the `ready` marker the daemon writes after its audio path is live.
+ * Gives up early if the pid stops existing — a daemon that died during boot is
+ * an answer, not something to keep waiting on.
+ *
+ * Synchronous because `/conduct start` is a command a human typed and *should*
+ * block for a moment before telling them what happened. The hook must never call
+ * this: it has to return immediately and can never block a turn.
+ */
+export function waitForDaemon(pidPath: string, timeoutMs = 2_000, pollMs = 50): boolean {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  for (;;) {
+    const { pid, ready } = readDaemonStatus(pidPath);
+    if (ready && pid !== null) {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false; // marked ready, then died
+      }
+    }
+    if (Date.now() >= deadline) return false;
+    sleepSync(Math.min(pollMs, Math.max(1, deadline - Date.now())));
+  }
+}
+
 export function isDaemonRunning(pidPath: string): boolean {
   const pid = readPid(pidPath);
   if (pid === null) return false;
