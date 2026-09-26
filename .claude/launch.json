@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "conduct-playground",
+      "name": "conduct-radio",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["tsx", "scripts/playground.ts", "--no-open"],
+      "runtimeArgs": ["tsx", "scripts/radio.ts", "--no-open"],
       "autoPort": true
     }
   ]

@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "rootDir": ".."
+  },
+  "//": "Browser-only: TS follows imports into src/ on its own, which keeps the shared modules checked against the Node-free subset (harmony, arranger, conductor, demo, types).",
+  "include": ["."]
+}

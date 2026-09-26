@@ -7,12 +7,8 @@
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "declaration": true,
-    "sourceMap": true,
-    "outDir": "dist",
-    "rootDir": ".",
+    "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "bin", "scripts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src", "test", "scripts"]
 }

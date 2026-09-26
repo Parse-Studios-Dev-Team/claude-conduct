@@ -1,0 +1,57 @@
+# Conduct Radio — release.
+#
+# Push a tag like `v0.1.0` on `main`, matching `version` in plugin.json and
+# package.json. This re-runs the checks and publishes a GitHub Release with the
+# plugin attached as a zip — the form Claude Code accepts for sharing a plugin
+# without a marketplace.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Tag is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Tag matches the plugin version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          plugin=$(node -p "require('./plugins/conduct-radio/.claude-plugin/plugin.json').version")
+          package=$(node -p "require('./package.json').version")
+          echo "tag $tag · plugin.json $plugin · package.json $package"
+          test "$tag" = "$plugin"
+          test "$tag" = "$package"
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Package the plugin
+        run: |
+          cd plugins
+          zip -rq "../conduct-radio-${GITHUB_REF_NAME}.zip" conduct-radio
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "conduct-radio-${GITHUB_REF_NAME}.zip" \
+            --title "Conduct Radio ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag

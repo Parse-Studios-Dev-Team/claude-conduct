@@ -1,29 +1,5 @@
-# Dependencies
 node_modules/
-
-# Build output
-dist/
-
-# Logs
 *.log
-npm-debug.log*
-
-# Runtime state (per-session, regenerated)
-.claude/conduct-state.json
-.claude/conduct-command.json
-.claude/conduct.pid
-.claude/conduct-daemon.log
-
-# Local user config (commit conduct.config.example.json instead)
-conduct.config.json
-
-# Generated stem preview (npm run export-stems)
-stems-preview/
-
-# Rendered sessions (npm run render-session / conduct render).
-# ~15 MB per 90s piece — these are output, never source.
-renders/
-*.wav
 
 # OS / editor
 .DS_Store
