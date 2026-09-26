@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Conduct Radio</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23000B29'/><g fill='%23FFD400' transform='translate(16 16)'><circle r='6.2'/><rect x='-1' y='-13' width='2' height='4.2' rx='.4'/><rect x='-1' y='8.8' width='2' height='4.2' rx='.4'/><rect x='-13' y='-1' width='4.2' height='2' rx='.4'/><rect x='8.8' y='-1' width='4.2' height='2' rx='.4'/><rect x='-1' y='-13' width='2' height='4.2' rx='.4' transform='rotate(45)'/><rect x='-1' y='-13' width='2' height='4.2' rx='.4' transform='rotate(-45)'/><rect x='-1' y='-13' width='2' height='4.2' rx='.4' transform='rotate(135)'/><rect x='-1' y='-13' width='2' height='4.2' rx='.4' transform='rotate(-135)'/></g></svg>"
+    /><circle cx='20' cy='13' r='8' fill='%231e2552'/></svg>"
+    />
+    <style>
+      :root {
+        --ink: #f4f5fb;
+        --ink-2: rgba(244, 245, 251, 0.72);
+        --ink-3: rgba(244, 245, 251, 0.5);
+        --glass: rgba(10, 14, 32, 0.34);
+        --glass-strong: rgba(10, 14, 32, 0.62);
+        --edge: rgba(255, 255, 255, 0.13);
+        --edge-strong: rgba(255, 255, 255, 0.28);
+        --lantern: #ffd59a;
+        --studio: #8ec9c5; /* Parse Studios teal */
+        --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+        --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Inter, system-ui, sans-serif;
+        --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+        --day: linear-gradient(90deg, #f2ae84 0%, #96c1ea 22%, #ffcf86 48%, #dd7657 68%, #2a305a 88%, #161c3c 100%);
+        --radius: 14px;
+      }
+
+      * { box-sizing: border-box; }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0a0f26;
+        color: var(--ink);
+        font: 14px/1.45 var(--sans);
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      #sky {
+        position: fixed;
+        inset: 0;
+        transition: filter 1.2s ease;
+      }
+      body.dim #sky { filter: brightness(0.55) saturate(0.8); }
+
+      button,
+      select,
+      input { font: inherit; color: inherit; }
+
+      button {
+        cursor: pointer;
+        border: 1px solid var(--edge);
+        background: var(--glass);
+        border-radius: 999px;
+        padding: 7px 14px;
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        transition: background 0.2s, border-color 0.2s;
+      }
+      button:hover { background: var(--glass-strong); border-color: var(--edge-strong); }
+      button:focus-visible,
+      select:focus-visible,
+      input:focus-visible { outline: 2px solid var(--lantern); outline-offset: 2px; }
+
+      .panel {
+        background: var(--glass);
+        border: 1px solid var(--edge);
+        border-radius: var(--radius);
+        backdrop-filter: blur(18px) saturate(1.2);
+        -webkit-backdrop-filter: blur(18px) saturate(1.2);
+      }
+
+      /* ── top ───────────────────────────────────────────── */
+
+      .top {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 22px;
+        pointer-events: none;
+      }
+      .top > * { pointer-events: auto; }
+      .wordmark {
+        font-family: var(--serif);
+        font-size: 22px;
+        letter-spacing: 0.01em;
+        text-shadow: 0 1px 12px rgba(0, 0, 0, 0.35);
+      }
+      .wordmark em { font-style: italic; opacity: 0.8; }
+      .by { margin-left: 8px; font: 500 12px/1 var(--sans); color: var(--studio); text-decoration: none; letter-spacing: 0.02em; vertical-align: 3px; opacity: 0.9; }
+      .by:hover { opacity: 1; text-decoration: underline; text-underline-offset: 3px; }
+      .palm { display: inline-block; width: 34px; height: 23px; color: var(--studio); vertical-align: middle; flex: none; }
+      .palm svg { width: 100%; height: 100%; display: block; }
+      .studio { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--ink-2); font-size: 12px; text-decoration: none; }
+      .studio b { color: var(--studio); font-weight: 600; }
+      .studio:hover b { text-decoration: underline; text-underline-offset: 3px; }
+      .credit { display: flex; align-items: center; gap: 8px; margin: 18px 0 0; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); color: var(--ink-3); font-size: 12px; }
+      .credit a { color: var(--studio); text-decoration: none; }
+      .credit a:hover { text-decoration: underline; text-underline-offset: 3px; }
+      .now {
+        margin-top: 2px;
+        color: var(--ink-2);
+        font-size: 13px;
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+        font-variant-numeric: tabular-nums;
+      }
+      .now b { color: var(--ink); font-weight: 600; }
+      .climb { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11.5px; color: var(--ink-3); text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45); font-variant-numeric: tabular-nums; }
+      .climb-bar { width: 120px; height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.16); overflow: hidden; }
+      .climb-bar > div { height: 100%; width: 0; background: var(--lantern); box-shadow: 0 0 8px var(--lantern); transition: width 0.8s ease; }
+      .ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
+      .ladder li { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: baseline; color: var(--ink-3); }
+      .ladder li .n { font-variant-numeric: tabular-nums; text-align: center; border-radius: 50%; }
+      .ladder li .at { font-variant-numeric: tabular-nums; font-size: 11.5px; }
+      .ladder li.done { color: var(--ink-2); }
+      .ladder li.done .n { color: var(--lantern); }
+      .ladder li.current { color: var(--ink); }
+      .ladder li.current .n { background: var(--lantern); color: #1a1a2e; font-weight: 700; }
+      .note { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; }
+      .conn { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: #8a8fa8; vertical-align: 1px; }
+      .conn.ok { background: #8fe3a5; box-shadow: 0 0 8px #8fe3a5; }
+      .conn.bad { background: #ff9d8a; }
+
+      .source {
+        display: flex;
+        gap: 2px;
+        padding: 3px;
+        border-radius: 999px;
+      }
+      .source button {
+        border: 0;
+        background: transparent;
+        backdrop-filter: none;
+        padding: 6px 14px;
+        color: var(--ink-2);
+      }
+      .source button[aria-pressed='true'] { background: rgba(255, 255, 255, 0.16); color: var(--ink); }
+
+      /* ── intro ─────────────────────────────────────────── */
+
+      .intro {
+        position: fixed;
+        left: 50%;
+        top: 44%;
+        transform: translate(-50%, -50%);
+        width: min(560px, calc(100vw - 32px));
+        text-align: center;
+        padding: 34px 32px 26px;
+      }
+      .intro[hidden] { display: none; }
+      .kicker { margin: 0 0 10px; color: var(--ink-2); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
+      .intro h1 { margin: 0; font: 400 36px/1.15 var(--serif); letter-spacing: -0.01em; }
+      .lede { margin: 14px auto 22px; color: var(--ink-2); max-width: 44ch; }
+      .lede code { font-family: var(--mono); font-size: 0.92em; color: var(--ink); }
+      .tune {
+        font-size: 16px;
+        padding: 11px 30px;
+        background: rgba(255, 213, 154, 0.2);
+        border-color: rgba(255, 213, 154, 0.55);
+      }
+      .tune:hover { background: rgba(255, 213, 154, 0.32); }
+      .fine { margin: 16px 0 0; color: var(--ink-3); font-size: 12px; }
+      .fine code { font-family: var(--mono); }
+
+      /* ── replay ────────────────────────────────────────── */
+
+      .replay {
+        position: fixed;
+        top: 76px;
+        right: 22px;
+        width: min(420px, calc(100vw - 32px));
+        padding: 14px;
+        display: grid;
+        gap: 10px;
+      }
+      .replay[hidden] { display: none; }
+      .replay select {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--edge);
+        background: rgba(10, 14, 32, 0.6);
+      }
+      .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .row .label { color: var(--ink-3); font-size: 12px; margin-right: 2px; }
+      .chip { padding: 4px 11px; font-size: 12px; }
+      .chip[aria-pressed='true'] { background: rgba(255, 255, 255, 0.2); border-color: var(--edge-strong); }
+      .progress { height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+      .progress > div { height: 100%; width: 0; background: var(--lantern); transition: width 0.3s; }
+
+      /* ── bottom ────────────────────────────────────────── */
+
+      .bottom {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 0 22px 18px;
+        display: grid;
+        gap: 12px;
+        pointer-events: none;
+      }
+      .bottom > * { pointer-events: auto; }
+
+      .sessions {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+      }
+      .sessions:empty { display: none; }
+
+      .card {
+        flex: 0 0 auto;
+        width: 260px;
+        padding: 12px 14px 11px;
+        transition: border-color 0.4s, opacity 0.6s;
+      }
+      .card.focused { border-color: rgba(255, 213, 154, 0.55); }
+      .card.idle { opacity: 0.78; }
+      .card-top { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-2); }
+      .card-top .project { flex: 0 1 auto; min-width: 3em; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .card-top .state { flex: 0 1 auto; min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .lamp { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 213, 154, 0.35); flex: none; }
+      .card.working .lamp { background: var(--lantern); box-shadow: 0 0 10px var(--lantern); }
+      .card.waiting .lamp { animation: breathe 2.8s ease-in-out infinite; }
+      @keyframes breathe { 50% { opacity: 0.35; } }
+      .card .title {
+        margin: 5px 0 9px;
+        font-family: var(--serif);
+        font-size: 15px;
+        line-height: 1.25;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        min-height: 2.5em;
+      }
+      .ctx { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+      .ctx-bar { position: relative; flex: 1; height: 5px; border-radius: 5px; background: var(--day); overflow: hidden; }
+      .ctx-bar .rest { position: absolute; top: 0; bottom: 0; right: 0; background: rgba(8, 10, 24, 0.72); transition: left 1s; }
+      .meta { margin-top: 6px; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+      .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .controls .spacer { flex: 1; }
+      .vol { display: flex; align-items: center; gap: 8px; padding: 5px 14px; border-radius: 999px; }
+      .vol span { font-size: 12px; color: var(--ink-2); }
+      input[type='range'] { accent-color: var(--lantern); width: 110px; }
+      #play { width: 40px; height: 36px; padding: 0; display: grid; place-items: center; }
+      #play svg { width: 14px; height: 14px; fill: currentColor; }
+
+      /* ── drawers ───────────────────────────────────────── */
+
+      .drawer {
+        position: fixed;
+        right: 22px;
+        bottom: 76px;
+        width: min(380px, calc(100vw - 32px));
+        max-height: calc(100vh - 170px);
+        overflow-y: auto;
+        padding: 18px;
+        background: var(--glass-strong);
+      }
+      .drawer[hidden] { display: none; }
+      .drawer h2 { margin: 0 0 12px; font: 400 19px/1.2 var(--serif); }
+      .drawer h3 { margin: 16px 0 6px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+      .setting { display: grid; gap: 6px; margin-bottom: 14px; }
+      .setting .row { justify-content: space-between; }
+      .setting p { margin: 0; color: var(--ink-3); font-size: 12px; }
+      .setting select { padding: 5px 8px; border-radius: 8px; border: 1px solid var(--edge); background: rgba(10, 14, 32, 0.6); }
+
+      .score-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      .score-table td { padding: 5px 0; vertical-align: top; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+      .score-table td:first-child { color: var(--ink-3); padding-right: 12px; width: 44%; }
+      .ticker { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 12.5px; }
+      .ticker li { display: flex; gap: 8px; color: var(--ink-3); transition: color 1.5s; }
+      .ticker li .dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; flex: none; }
+      .ticker li:nth-child(-n + 2) { color: var(--ink-2); }
+      .ticker li:first-child { color: var(--ink); }
+      .ticker:empty::before { content: 'Nothing yet — start working in a session, or play the demo.'; color: var(--ink-3); }
+
+      @media (max-width: 640px) {
+        .top { flex-direction: column; padding: 14px 16px; }
+        .bottom { padding: 0 16px 14px; }
+        .intro h1 { font-size: 28px; }
+        .card { width: 230px; }
+        .drawer, .replay { right: 16px; }
+        input[type='range'] { width: 80px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="sky" aria-hidden="true"></canvas>
+
+    <header class="top">
+      <div>
+        <div class="wordmark">
+          Conduct <em>Radio</em><a class="by" href="https://parsestudios.com" target="_blank" rel="noopener">by Parse Studios</a>
+        </div>
+        <div class="now" id="now"><span class="conn" id="conn"></span><span id="nowText">Tuning…</span></div>
+        <div class="climb" title="The more Claude writes, the more of the band comes in">
+          <div class="climb-bar"><div id="ladderFill"></div></div>
+          <span id="ladderText"></span>
+        </div>
+      </div>
+      <div class="source panel" role="group" aria-label="Source">
+        <button data-source="live" aria-pressed="true">Live</button>
+        <button data-source="demo" aria-pressed="false">Demo</button>
+        <button data-source="replay" aria-pressed="false">Replay</button>
+      </div>
+    </header>
+
+    <section class="intro panel" id="intro">
+      <p class="kicker">Lo-fi for your Claude Code sessions</p>
+      <h1>The more you build, the better it sounds.</h1>
+      <p class="lede">
+        It starts as a simple beat. Every token Claude writes moves the track up a level, and each level brings
+        in more of the band: a bass line, richer chords, a melody, strings. It all stays in key.
+      </p>
+      <button class="tune" id="tune">Tune in</button>
+      <p class="fine" id="introFine">Reads <code>~/.claude/projects</code> on this machine. Nothing leaves it.</p>
+      <a class="studio" href="https://parsestudios.com" target="_blank" rel="noopener">
+        <span class="palm" data-palm></span><span>A Claude Code plugin by <b>Parse Studios</b></span>
+      </a>
+    </section>
+
+    <section class="replay panel" id="replay" hidden>
+      <select id="replayPick" aria-label="Session to replay"><option>Loading sessions…</option></select>
+      <div class="row" id="speeds">
+        <span class="label">Speed</span>
+        <button class="chip" data-speed="1" aria-pressed="false">1×</button>
+        <button class="chip" data-speed="4" aria-pressed="false">4×</button>
+        <button class="chip" data-speed="12" aria-pressed="true">12×</button>
+        <button class="chip" data-speed="40" aria-pressed="false">40×</button>
+      </div>
+      <div class="progress"><div id="replayProgress"></div></div>
+    </section>
+
+    <footer class="bottom">
+      <div class="sessions" id="sessions" aria-live="polite"></div>
+      <div class="controls">
+        <button id="play" aria-label="Play" title="Play / pause (space)">
+          <svg viewBox="0 0 14 14" id="playIcon"><path d="M3 1.5v11l9-5.5z" /></svg>
+        </button>
+        <label class="vol panel"><span>Volume</span><input type="range" id="volume" min="0" max="1" step="0.01" /></label>
+        <span class="spacer"></span>
+        <button id="scoreToggle" aria-expanded="false">What am I hearing?</button>
+        <button id="settingsToggle" aria-expanded="false">Settings</button>
+      </div>
+    </footer>
+
+    <aside class="drawer panel" id="score" hidden aria-label="What am I hearing?">
+      <h2>What you're hearing</h2>
+      <h3>Just now</h3>
+      <ol class="ticker" id="ticker"></ol>
+      <h3>The ladder</h3>
+      <ol class="ladder" id="ladder"></ol>
+      <p class="note">
+        Levels count output tokens from every session, subagents too, since you tuned in. A new level comes in at
+        the start of the next phrase, after a small drum fill.
+      </p>
+      <h3>The flow</h3>
+      <table class="score-table">
+        <tr><td>Claude working</td><td>The whole band, at the level you've reached</td></tr>
+        <tr><td>Your turn</td><td>A soft flourish, then the band lays back. The beat keeps going.</td></tr>
+        <tr><td><code>/compact</code></td><td>A filter sweep into a fresh progression, and the sun comes back up</td></tr>
+        <tr><td>Context fill</td><td>The sky's time of day, and a slightly warmer, late-night tone</td></tr>
+        <tr><td>Other sessions</td><td>More lanterns on the horizon, and their tokens count too</td></tr>
+      </table>
+      <p class="credit">
+        <span class="palm" data-palm></span>
+        <span>Conduct Radio is made by <a href="https://parsestudios.com" target="_blank" rel="noopener">Parse Studios</a>. MIT licensed.</span>
+      </p>
+    </aside>
+
+    <aside class="drawer panel" id="settings" hidden aria-label="Settings">
+      <h2>Settings</h2>
+      <div class="setting">
+        <div class="row"><label for="vinyl">Vinyl crackle</label><input type="range" id="vinyl" min="0" max="1" step="0.01" /></div>
+      </div>
+      <div class="setting">
+        <div class="row">
+          <span>Build speed</span>
+          <span class="row" id="buildSpeed">
+            <button class="chip" data-value="slow">Slow</button>
+            <button class="chip" data-value="normal">Normal</button>
+            <button class="chip" data-value="fast">Fast</button>
+          </span>
+        </div>
+        <p>How many tokens each level takes.</p>
+      </div>
+      <div class="setting">
+        <div class="row">
+          <span>Tempo</span>
+          <span class="row" id="tempo">
+            <button class="chip" data-value="70">70</button>
+            <button class="chip" data-value="76">76</button>
+            <button class="chip" data-value="82">82</button>
+            <button class="chip" data-value="88">88</button>
+          </span>
+        </div>
+      </div>
+      <div class="setting">
+        <div class="row">
+          <label for="key">Key</label>
+          <select id="key"></select>
+        </div>
+      </div>
+      <div class="setting">
+        <div class="row"><label for="dim">Dim the sky</label><input type="checkbox" id="dim" /></div>
+      </div>
+    </aside>
+
+    <script type="module" src="/bundle.js"></script>
+  </body>
+</html>

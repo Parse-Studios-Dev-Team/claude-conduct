@@ -1,0 +1,14 @@
+{
+  "name": "conduct-radio",
+  "displayName": "Conduct Radio",
+  "version": "0.1.0",
+  "description": "Lo-fi focus music that levels up as Claude works. Follows every Claude Code session on this machine and plays in your browser. By Parse Studios.",
+  "author": {
+    "name": "Parse Studios",
+    "url": "https://parsestudios.com"
+  },
+  "homepage": "https://github.com/Parse-Studios-Dev-Team/claude-conduct",
+  "repository": "https://github.com/Parse-Studios-Dev-Team/claude-conduct",
+  "license": "MIT",
+  "keywords": ["music", "lo-fi", "focus", "ambient", "parse-studios"]
+}
