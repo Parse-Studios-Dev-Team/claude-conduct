@@ -9,6 +9,11 @@
   A Claude Code plugin by <a href="https://parsestudios.com">Parse Studios</a>.
 </p>
 
+<p align="center">
+  <a href="https://github.com/Parse-Studios-Dev-Team/claude-conduct/actions/workflows/ci.yml"><img src="https://github.com/Parse-Studios-Dev-Team/claude-conduct/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8ec9c5" alt="MIT license"></a>
+</p>
+
 ---
 
 It starts as a simple beat: boom-bap drums, Rhodes chords and a warm bass
@@ -102,10 +107,32 @@ are prebuilt and committed. `npm test` fails if they're stale.
 
 - **Try it without installing:** `claude --plugin-dir ./plugins/conduct-radio`
 - **Validate:** `claude plugin validate .`
-- **Release:** bump `version` in `plugins/conduct-radio/.claude-plugin/plugin.json`.
-  Users only get a new copy when it changes.
-- **Branches:** `marketplace add` reads the default branch. To try another one,
-  add `Parse-Studios-Dev-Team/claude-conduct#<branch>`.
+- **Branches:** work happens on `feature/…` branches, merged into `dev` by pull
+  request; `dev` is released to `main`. Both are protected: changes only by PR,
+  and the `CI` check must pass. `marketplace add` reads `main`; to try another
+  branch, add `Parse-Studios-Dev-Team/claude-conduct#<branch>`.
+
+### CI and releases
+
+[CI](.github/workflows/ci.yml) runs on every pull request and on `main` and
+`dev`. It typechecks and tests on Node 18, 22 and 24, and validates the plugin
+and marketplace with Claude Code. The single `CI` check it reports is what the
+branch protection requires.
+
+To release:
+
+1. Bump `version` in `package.json` and
+   `plugins/conduct-radio/.claude-plugin/plugin.json` (users only get a new
+   copy when it changes), and merge to `main` through `dev`.
+2. Tag `main` and push the tag: `git tag v0.1.0 && git push origin v0.1.0`.
+
+The [release workflow](.github/workflows/release.yml) checks that the tag is on
+`main` and matches both versions, reruns the checks, and publishes a GitHub
+Release with the plugin attached as a zip.
+
+[Dependabot](.github/dependabot.yml) opens weekly update PRs against `dev`. An
+esbuild bump changes the built plugin, so its PR needs `npm run build` pushed to
+it before it goes green.
 
 The original hook-driven engine this grew out of (a daemon, layered stems, a
 tape-deck playground) is in the repository's history, before Conduct Radio

@@ -7,6 +7,9 @@
   "author": "Parse Studios (https://parsestudios.com)",
   "license": "MIT",
   "repository": "github:Parse-Studios-Dev-Team/claude-conduct",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "radio": "tsx scripts/radio.ts",
     "build": "tsx scripts/build-plugin.ts",

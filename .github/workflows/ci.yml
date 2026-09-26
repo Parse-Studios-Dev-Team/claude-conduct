@@ -1,0 +1,69 @@
+# Conduct Radio — continuous integration.
+#
+# `CI` is the one required status check on `main` and `dev`. It passes only when
+# every job below passed; a skipped or cancelled job fails it, because GitHub
+# treats a *skipped* required check as passing.
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 18 is the oldest Node the plugin supports; 22 and 24 are current LTS.
+        node: [18, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # Includes the no-clash rule, the shipped plugin's launcher end to end,
+      # and a check that the committed build in plugins/ isn't stale.
+      - run: npm test
+
+  plugin:
+    name: Validate plugin
+    runs-on: ubuntu-latest
+    env:
+      # Pinned so a new Claude Code release can't change the rules under a PR.
+      # Bump deliberately; `npm view @anthropic-ai/claude-code dist-tags` lists versions.
+      CLAUDE_CODE_VERSION: 2.1.281
+      DISABLE_AUTOUPDATER: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      - run: claude plugin validate . --strict
+      - run: claude plugin validate ./plugins/conduct-radio --strict
+
+  ci:
+    name: CI
+    if: always()
+    needs: [test, plugin]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job passed
+        run: |
+          echo "test: ${{ needs.test.result }}, plugin: ${{ needs.plugin.result }}"
+          test "${{ needs.test.result }}" = success
+          test "${{ needs.plugin.result }}" = success
