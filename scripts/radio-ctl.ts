@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 /**
- * radio-ctl — start, stop and check the Conduct Radio server. This is what the
- * plugin's `/conduct-radio:radio` skill runs.
+ * radio-ctl — start, stop and check the Conduct Radio server, and cut tapes.
+ * This is what the plugin's `/conduct-radio:radio` skill runs.
  *
  *   radio-ctl [start|stop|status] [--data <dir>] [--no-open] [--port <n>] [--root <dir>]
+ *   radio-ctl tape [title…] [--session <id>] [--root <dir>] [--tapes <dir>]
  *
  * `start` reuses a running server when there is one, otherwise launches one in
  * the background, and opens the page either way. It only ever reports what it
  * verified: a server counts as running once it has published its state file
  * *and* answered `/healthz` as Conduct Radio. A pid alone proves nothing: `spawn`
  * returns one even for a process that dies a millisecond later.
+ *
+ * `tape` saves the session's last finished turn to the tape shelf — run from the
+ * skill, the turn in progress is the command itself.
  *
  * Built to `plugins/conduct-radio/server/radio-ctl.mjs` next to `radio.mjs`,
  * with the page in `../app`. Node built-ins only: a plugin install has no
@@ -21,6 +25,7 @@ import { get } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_SHELF, cutTape, tapeMinutes } from '../src/shelf';
 
 interface State {
   app: string;
@@ -36,14 +41,14 @@ const flag = (name: string): string | null => {
   const i = args.indexOf(name);
   return i >= 0 ? (args[i + 1] ?? null) : null;
 };
-const VALUE_FLAGS = new Set(['--data', '--port', '--root', '--idle-exit']);
+const VALUE_FLAGS = new Set(['--data', '--port', '--root', '--idle-exit', '--session', '--tapes']);
 const positional = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && VALUE_FLAGS.has(args[i - 1]!)));
 const command = (positional[0] ?? 'start').toLowerCase();
 
-// `${CLAUDE_PLUGIN_DATA}` is substituted by Claude Code; a literal placeholder
-// means we're running outside it.
-const dataFlag = flag('--data');
-const dataDir = resolve(dataFlag && !dataFlag.includes('${') ? dataFlag : join(homedir(), '.claude', 'conduct-radio'));
+// `${CLAUDE_PLUGIN_DATA}` and `${CLAUDE_SESSION_ID}` are substituted by Claude
+// Code; a literal placeholder means we're running outside it.
+const substituted = (value: string | null): string | null => (value && !value.includes('${') ? value : null);
+const dataDir = resolve(substituted(flag('--data')) ?? join(homedir(), '.claude', 'conduct-radio'));
 const stateFile = join(dataDir, 'server.json');
 const logFile = join(dataDir, 'server.log');
 
@@ -138,6 +143,8 @@ async function start(): Promise<number> {
   serverArgs.push('--port', flag('--port') ?? '5274');
   const root = flag('--root');
   if (root) serverArgs.push('--root', root);
+  const tapes = flag('--tapes');
+  if (tapes) serverArgs.push('--tapes', tapes);
   const child = spawn(process.execPath, serverArgs, { detached: true, stdio: ['ignore', log, log] });
   child.unref();
 
@@ -157,13 +164,10 @@ async function start(): Promise<number> {
 }
 
 async function stop(): Promise<number> {
-  const state = readState();
-  if (!state || !alive(state.pid)) {
-    try {
-      unlinkSync(stateFile);
-    } catch {
-      /* nothing to clean */
-    }
+  // Only a process that answers as this radio. After a crash the state file
+  // outlives the server, and its pid may since belong to something else.
+  const state = await running();
+  if (!state) {
     console.log('Conduct Radio is not running.');
     return 0;
   }
@@ -190,10 +194,33 @@ async function status(): Promise<number> {
   return 0;
 }
 
-const commands: Record<string, () => Promise<number>> = { start, open: start, stop, status };
+/** Save the last finished turn to the shelf, named by whatever follows `tape`. */
+async function tape(): Promise<number> {
+  const result = cutTape({
+    root: resolve(flag('--root') ?? join(homedir(), '.claude', 'projects')),
+    shelf: resolve(flag('--tapes') ?? DEFAULT_SHELF),
+    // `${CLAUDE_SESSION_ID}` from the skill; without it, the latest session.
+    session: substituted(flag('--session')),
+    title: positional.slice(1).join(' ') || null,
+    finished: true,
+  });
+  if ('error' in result) {
+    console.log(`Couldn't cut a tape: ${result.error}`);
+    return 1;
+  }
+  const { tape: saved } = result;
+  const out = saved.out >= 1000 ? `${(saved.out / 1000).toFixed(1)}k` : String(saved.out);
+  // This line goes to the model. A title you typed is safe to repeat; a session
+  // title is written from the conversation, so it stays out.
+  const named = positional.length > 1 ? `the tape “${saved.title}”` : 'the last turn as a tape';
+  console.log(`Saved ${named} (${tapeMinutes(saved)} min, ${out} output tokens). Play it on the radio under Replay → Tapes.`);
+  return 0;
+}
+
+const commands: Record<string, () => Promise<number>> = { start, open: start, stop, status, tape };
 const run = commands[command];
 if (!run) {
-  console.log(`Unknown command "${command}". Use start, stop or status.`);
+  console.log(`Unknown command "${command}". Use start, stop, status or tape.`);
   process.exit(1);
 }
 process.exit(await run());

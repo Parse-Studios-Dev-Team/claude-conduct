@@ -1,6 +1,6 @@
-import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { TranscriptReader } from './events';
+import { TranscriptReader, readTranscript } from './events';
 import type { RadioEvent, SessionState } from './types';
 
 /**
@@ -86,6 +86,35 @@ export function findTranscripts(root: string): Array<{ path: string; session: st
     }
   }
   return out;
+}
+
+/** A single path segment: letters, digits, `._-`, and not `.` or `..`. */
+export function safeName(name: string): boolean {
+  return /^[A-Za-z0-9._-]+$/.test(name) && !/^\.+$/.test(name);
+}
+
+/**
+ * A whole session from disk, main thread and every subagent, as one list of
+ * events in order. For replays and tapes.
+ */
+export function readSession(
+  root: string,
+  project: string,
+  session: string,
+): { events: RadioEvent[]; state: SessionState } | null {
+  if (!safeName(project) || !safeName(session)) return null;
+  const main = join(root, project, `${session}.jsonl`);
+  if (!existsSync(main)) return null;
+  const { events, state } = readTranscript(readFileSync(main, 'utf8'), { session });
+  const subDir = join(root, project, session, 'subagents');
+  if (existsSync(subDir)) {
+    for (const file of readdirSync(subDir)) {
+      if (!SESSION_FILE.test(file)) continue;
+      events.push(...readTranscript(readFileSync(join(subDir, file), 'utf8'), { session, sub: true }).events);
+    }
+  }
+  events.sort((a, b) => a.at - b.at);
+  return { events, state };
 }
 
 /** Claude Code's directory name for a project, as a readable fallback name. */

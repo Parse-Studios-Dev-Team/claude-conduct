@@ -102,6 +102,15 @@ and state and checks every note against its chord.
   8.5 kHz to 4.6 kHz by night. It's a late-night tone, never a penalty.
 - **The sky follows the session you last prompted.** With two sessions working,
   following the last speaker made it flicker.
+- **The sky never jumps.** It used to get a new time of day four times a
+  second, so the sun moved in steps. After a compaction it ran the whole day
+  backwards in a few seconds, and the sun blinked in and out at the horizon
+  while its glow still showed. Now it runs at up to 60fps on a critically damped
+  spring that never overshoots (`src/skyclock.ts`, tested). The sun fades
+  behind the hills. A compaction carries the sky on through the night and the
+  hour before dawn, and the sun comes up in the east over about five seconds.
+  Measured frame to frame through that sunrise, the picture never changes more
+  than about 0.5%.
 
 ## The sound
 
@@ -151,10 +160,14 @@ the transcript's quirks, each pinned by a test:
 | `src/arranger.ts` | browser | levels + flow → the band, one beat at a time |
 | `src/harmony.ts` | both | chords, safe sets, voice leading, the sky's day |
 | `src/demo.ts` | browser | a scripted afternoon that climbs the whole ladder |
+| `src/skyclock.ts` | browser | the sky's clock: a spring that never overshoots, and new days that come from the east |
+| `src/tape.ts` | both | tapes: a stretch of a session, saved to play back |
+| `src/shelf.ts` | server | the tape shelf, and cutting a tape from a transcript |
 | `app/engine.ts` | browser | Web Audio synthesis |
 | `app/sky.ts` | browser | the canvas, the Parse Studios palm on its horizon included |
 | `app/brand.ts` | browser | Parse Studios' mark and links |
 | `app/main.ts` | browser | the beat clock, sources and HUD |
 | `scripts/radio.ts` | server | bundles or serves prebuilt, streams (SSE), replays |
-| `scripts/radio-ctl.ts` | server | the plugin's start / stop / status |
+| `scripts/radio-ctl.ts` | server | the plugin's start / stop / status / tape |
+| `scripts/tape.ts` | dev | `npm run tape` |
 | `scripts/build-plugin.ts` | build | writes `plugins/conduct-radio/` |

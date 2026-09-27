@@ -24,10 +24,17 @@ install: the plugin ships prebuilt.
 | `/conduct-radio:radio` | starts the radio if it isn't running, and opens it |
 | `/conduct-radio:radio stop` | stops it |
 | `/conduct-radio:radio status` | says whether it's running, and where |
+| `/conduct-radio:radio tape [title]` | saves Claude's last finished turn as a tape you can play back |
 
 Press **Tune in** on the page (browsers only play audio after a click). Nothing
 running? **Demo** climbs all eight levels in two minutes, and **Replay** plays
 back any past session.
+
+**Tapes.** When Claude finishes something you'd like to hear again, run
+`/conduct-radio:radio tape` (optionally with a title). It saves that turn to
+`~/.claude/conduct-radio/tapes/`, and it's under **Replay → Tapes** from then
+on. Like the radio itself, a tape holds token counts and event kinds, never
+what was said.
 
 The server runs in the background on `localhost:5274` (or the next free port),
 and shuts itself down after 30 minutes with no page open.

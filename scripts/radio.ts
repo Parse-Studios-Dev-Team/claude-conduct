@@ -5,6 +5,7 @@
  *   npm run radio                 # bundle, serve on :5274, open a browser
  *   npm run radio -- --port 8080 --no-open
  *   npm run radio -- --root <dir> # a different ~/.claude/projects
+ *   npm run radio -- --tapes <dir> # a different tape shelf (~/.claude/conduct-radio/tapes)
  *
  * Installed as a plugin, the same server runs prebuilt (see
  * `scripts/build-plugin.ts`) and is managed by `radio-ctl`:
@@ -25,7 +26,6 @@ import { createServer, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   closeSync,
-  existsSync,
   openSync,
   readFileSync,
   readSync,
@@ -39,8 +39,9 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { TranscriptWatcher, findTranscripts } from '../src/tail';
+import { TranscriptWatcher, findTranscripts, readSession } from '../src/tail';
 import { readTranscript } from '../src/events';
+import { DEFAULT_SHELF, listTapes, readTape } from '../src/shelf';
 import type { RadioEvent } from '../src/types';
 
 const repoDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -53,6 +54,7 @@ const flag = (name: string): string | null => {
 const port = Number(flag('--port') ?? process.env.PORT ?? 5274);
 const shouldOpen = !args.includes('--no-open');
 const root = resolve(flag('--root') ?? join(homedir(), '.claude', 'projects'));
+const shelf = resolve(flag('--tapes') ?? DEFAULT_SHELF);
 const stateFile = flag('--state');
 const idleExitMs = Number(flag('--idle-exit') ?? 0) * 60_000;
 
@@ -112,8 +114,6 @@ setInterval(() => {
 }, 15_000).unref();
 
 // ── replays ────────────────────────────────────────────────────────────────
-
-const SAFE = /^[A-Za-z0-9._-]+$/;
 
 /** Read at most `length` bytes of `path` starting at `start`. */
 function readRange(path: string, start: number, length: number): string {
@@ -187,21 +187,13 @@ function listSessions(): unknown[] {
 }
 
 function replay(id: string): { events: RadioEvent[]; project: string; title: string | null } | null {
-  const [project, session] = id.split('/');
-  if (!project || !session || !SAFE.test(project) || !SAFE.test(session)) return null;
-  const main = join(root, project, `${session}.jsonl`);
-  if (!existsSync(main)) return null;
-
-  const { events, state } = readTranscript(readFileSync(main, 'utf8'), { session });
-  const subDir = join(root, project, session, 'subagents');
-  if (existsSync(subDir)) {
-    for (const file of readdirSync(subDir)) {
-      if (!file.endsWith('.jsonl') || !SAFE.test(file)) continue;
-      events.push(...readTranscript(readFileSync(join(subDir, file), 'utf8'), { session, sub: true }).events);
-    }
+  if (id.startsWith('tape:')) {
+    const tape = readTape(shelf, id.slice('tape:'.length));
+    return tape && { events: tape.events, project: tape.project, title: tape.title };
   }
-  events.sort((a, b) => a.at - b.at);
-  return { events, project: state.project, title: state.title };
+  const [project, session] = id.split('/');
+  const found = project && session ? readSession(root, project, session) : null;
+  return found && { events: found.events, project: found.state.project, title: found.state.title };
 }
 
 // ── server ─────────────────────────────────────────────────────────────────
@@ -211,13 +203,41 @@ const json = (res: ServerResponse, status: number, body: unknown): void => {
   res.end(JSON.stringify(body));
 };
 
+/**
+ * The page's own origin only. Other websites can't read a 127.0.0.1 server's
+ * responses, but DNS rebinding points a hostile domain at it, and then they
+ * can. That request still carries the hostile name in `Host`.
+ */
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1)(:\d+)?$/i;
+
+const PAGE_POLICY = [
+  "default-src 'self'",
+  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
+
 const server = createServer((req, res) => {
+  if (!LOCAL_HOST.test(req.headers.host ?? '')) {
+    res.writeHead(403, { 'content-type': 'text/plain' });
+    res.end('Conduct Radio only answers on localhost.');
+    return;
+  }
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('referrer-policy', 'no-referrer');
   const url = new URL(req.url ?? '/', 'http://localhost');
 
   switch (url.pathname) {
     case '/':
     case '/index.html':
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'content-security-policy': PAGE_POLICY,
+      });
       res.end(app.html());
       return;
 
@@ -248,6 +268,10 @@ const server = createServer((req, res) => {
 
     case '/api/sessions':
       json(res, 200, listSessions());
+      return;
+
+    case '/api/tapes':
+      json(res, 200, listTapes(shelf));
       return;
 
     case '/api/replay': {
