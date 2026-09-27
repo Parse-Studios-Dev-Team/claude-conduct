@@ -116,7 +116,7 @@
       .now b { color: var(--ink); font-weight: 600; }
       .climb { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11.5px; color: var(--ink-3); text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45); font-variant-numeric: tabular-nums; }
       .climb-bar { width: 120px; height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.16); overflow: hidden; }
-      .climb-bar > div { height: 100%; width: 0; background: var(--lantern); box-shadow: 0 0 8px var(--lantern); transition: width 0.8s ease; }
+      .climb-bar > div { height: 100%; background: var(--lantern); box-shadow: 0 0 8px var(--lantern); transform: scaleX(0); transform-origin: left; transition: transform 0.8s ease; }
       .ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
       .ladder li { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: baseline; color: var(--ink-3); }
       .ladder li .n { font-variant-numeric: tabular-nums; text-align: center; border-radius: 50%; }
@@ -157,6 +157,7 @@
         padding: 34px 32px 26px;
       }
       .intro[hidden] { display: none; }
+      .intro.leaving { opacity: 0; transform: translate(-50%, -48%) scale(0.98); transition: opacity 0.4s ease, transform 0.4s ease; }
       .kicker { margin: 0 0 10px; color: var(--ink-2); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
       .intro h1 { margin: 0; font: 400 36px/1.15 var(--serif); letter-spacing: -0.01em; }
       .lede { margin: 14px auto 22px; color: var(--ink-2); max-width: 44ch; }
@@ -195,7 +196,7 @@
       .chip { padding: 4px 11px; font-size: 12px; }
       .chip[aria-pressed='true'] { background: rgba(255, 255, 255, 0.2); border-color: var(--edge-strong); }
       .progress { height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
-      .progress > div { height: 100%; width: 0; background: var(--lantern); transition: width 0.3s; }
+      .progress > div { height: 100%; background: var(--lantern); transform: scaleX(0); transform-origin: left; transition: transform 0.3s linear; }
 
       /* ── bottom ────────────────────────────────────────── */
 
@@ -225,6 +226,7 @@
         width: 260px;
         padding: 12px 14px 11px;
         transition: border-color 0.4s, opacity 0.6s;
+        animation: rise-in 0.6s ease;
       }
       .card.focused { border-color: rgba(255, 213, 154, 0.55); }
       .card.idle { opacity: 0.78; }
@@ -248,7 +250,7 @@
       }
       .ctx { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
       .ctx-bar { position: relative; flex: 1; height: 5px; border-radius: 5px; background: var(--day); overflow: hidden; }
-      .ctx-bar .rest { position: absolute; top: 0; bottom: 0; right: 0; background: rgba(8, 10, 24, 0.72); transition: left 1s; }
+      .ctx-bar .rest { position: absolute; inset: 0; background: rgba(8, 10, 24, 0.72); transform-origin: right; transition: transform 1s ease; }
       .meta { margin-top: 6px; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
       .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -272,6 +274,8 @@
         background: var(--glass-strong);
       }
       .drawer[hidden] { display: none; }
+      .drawer, .replay { animation: rise-in 0.25s ease; }
+      @keyframes rise-in { from { opacity: 0; transform: translateY(6px); } }
       .drawer h2 { margin: 0 0 12px; font: 400 19px/1.2 var(--serif); }
       .drawer h3 { margin: 16px 0 6px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
       .setting { display: grid; gap: 6px; margin-bottom: 14px; }
@@ -283,7 +287,7 @@
       .score-table td { padding: 5px 0; vertical-align: top; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
       .score-table td:first-child { color: var(--ink-3); padding-right: 12px; width: 44%; }
       .ticker { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 12.5px; }
-      .ticker li { display: flex; gap: 8px; color: var(--ink-3); transition: color 1.5s; }
+      .ticker li { display: flex; gap: 8px; color: var(--ink-3); transition: color 1.5s; animation: rise-in 0.5s ease; }
       .ticker li .dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; flex: none; }
       .ticker li:nth-child(-n + 2) { color: var(--ink-2); }
       .ticker li:first-child { color: var(--ink); }
@@ -339,7 +343,7 @@
     </section>
 
     <section class="replay panel" id="replay" hidden>
-      <select id="replayPick" aria-label="Session to replay"><option>Loading sessions…</option></select>
+      <select id="replayPick" aria-label="Tape or session to replay"><option>Loading…</option></select>
       <div class="row" id="speeds">
         <span class="label">Speed</span>
         <button class="chip" data-speed="1" aria-pressed="false">1×</button>

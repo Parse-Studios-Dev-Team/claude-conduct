@@ -40,11 +40,12 @@ ships prebuilt.
 | `/conduct-radio:radio` | starts the radio if it isn't running, and opens it |
 | `/conduct-radio:radio stop` | stops it |
 | `/conduct-radio:radio status` | says whether it's running, and where |
+| `/conduct-radio:radio tape [title]` | saves Claude's last finished turn as a tape you can play back |
 
 Press **Tune in** (browsers only play audio after a click). It follows every
 Claude Code session on your machine as it happens. Nothing running?
 **Demo** climbs all eight levels in two minutes, and **Replay** plays back any
-past session.
+past session, or a tape: a stretch of work you saved to hear again.
 
 ## The ladder
 
@@ -91,6 +92,7 @@ npm run radio        # run from source: bundles on the fly, opens on :5274
 npm test             # 400+ checks, including the no-clash rule and the shipped plugin
 npm run typecheck
 npm run build        # rebuild the plugin in plugins/conduct-radio/
+npm run tape -- --title "Smooth sky"   # save the latest turn as a tape
 ```
 
 | path | what |

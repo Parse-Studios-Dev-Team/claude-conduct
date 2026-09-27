@@ -12,6 +12,7 @@
   },
   "scripts": {
     "radio": "tsx scripts/radio.ts",
+    "tape": "tsx scripts/tape.ts",
     "build": "tsx scripts/build-plugin.ts",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p app"

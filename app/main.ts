@@ -1,7 +1,7 @@
 import { Arranger, LEVEL_LAYERS, type BeatPlan, type Cue, type Mix } from '../src/arranger';
 import { Conductor, LEVELS, type BuildSpeed, type SessionView } from '../src/conductor';
 import { DEMO_LEVEL_SCALE, DEMO_PROJECTS, demoScript } from '../src/demo';
-import { noteName, phaseAt } from '../src/harmony';
+import { dayPosition, noteName, phaseAt } from '../src/harmony';
 import type { RadioEvent, SessionState } from '../src/types';
 import { palmSvg } from './brand';
 import { DEFAULT_ENGINE, Engine, type Sounded } from './engine';
@@ -77,6 +77,8 @@ let connected = false;
 let lastMix: Mix | null = null;
 /** What is actually sounding — the band plays levels in a phrase after they're earned. */
 let heard: { chord: string; level: number; band: BeatPlan['band'] } | null = null;
+/** Put the sky straight at the right time of day on the next render, instead of gliding there. */
+let snapSky = true;
 
 function newConductor(): Conductor {
   return new Conductor({
@@ -154,7 +156,7 @@ async function play(): Promise<void> {
   nextBeatTime = engine.now + 0.12;
   clock ??= setInterval(tick, 50);
   tick();
-  $('intro').hidden = true;
+  fadeOut($('intro'));
   renderPlayButton();
   updateMediaSession();
 }
@@ -164,6 +166,16 @@ async function pause(): Promise<void> {
   if (engine) await engine.pause();
   renderPlayButton();
   updateMediaSession();
+}
+
+/** Hide an element after its `.leaving` transition, rather than in one frame. */
+function fadeOut(el: HTMLElement): void {
+  if (el.hidden || el.classList.contains('leaving')) return;
+  el.classList.add('leaving');
+  window.setTimeout(() => {
+    el.hidden = true;
+    el.classList.remove('leaving');
+  }, 450);
 }
 
 function renderPlayButton(): void {
@@ -207,7 +219,10 @@ stream.addEventListener('error', () => {
 stream.addEventListener('snapshot', (e) => {
   connected = true;
   liveSessions = (JSON.parse((e as MessageEvent<string>).data) as { sessions: SessionState[] }).sessions;
-  if (source === 'live') conductor.seed(liveSessions, Date.now());
+  if (source === 'live') {
+    conductor.seed(liveSessions, Date.now());
+    snapSky = true;
+  }
   const n = liveSessions.length;
   $('introFine').innerHTML =
     n === 0
@@ -290,22 +305,53 @@ interface ReplayListing {
   title: string | null;
   project: string;
   mtime: number;
-  size: number;
+}
+
+interface TapeListing extends ReplayListing {
+  minutes: number;
+  out: number;
 }
 
 async function loadReplayList(): Promise<void> {
   const pick = $<HTMLSelectElement>('replayPick');
-  try {
-    const list = (await (await fetch('/api/sessions')).json()) as ReplayListing[];
-    pick.innerHTML = '<option value="">Pick a session to replay…</option>';
-    for (const item of list) {
-      const option = document.createElement('option');
-      option.value = item.id;
-      option.textContent = `${item.title ?? item.id.split('/')[1]?.slice(0, 8)} — ${item.project} · ${ago(item.mtime)}`;
-      pick.append(option);
+  const get = async <T,>(url: string): Promise<T[]> => {
+    try {
+      return (await (await fetch(url)).json()) as T[];
+    } catch {
+      return [];
     }
-  } catch {
-    pick.innerHTML = '<option value="">Couldn’t list sessions</option>';
+  };
+  const [tapes, sessions] = await Promise.all([get<TapeListing>('/api/tapes'), get<ReplayListing>('/api/sessions')]);
+  const option = (value: string, text: string): HTMLOptionElement => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    return o;
+  };
+  const group = (label: string, options: HTMLOptionElement[]): HTMLOptGroupElement => {
+    const g = document.createElement('optgroup');
+    g.label = label;
+    g.append(...options);
+    return g;
+  };
+  pick.replaceChildren(
+    option('', tapes.length + sessions.length > 0 ? 'Pick a tape or a session to replay…' : 'Nothing to replay yet'),
+  );
+  if (tapes.length > 0) {
+    pick.append(
+      group(
+        'Tapes',
+        tapes.map((t) => option(t.id, `${t.title} — ${t.project} · ${t.minutes} min · ${k(t.out)} out`)),
+      ),
+    );
+  }
+  if (sessions.length > 0) {
+    pick.append(
+      group(
+        'Recent sessions',
+        sessions.map((s) => option(s.id, `${s.title ?? s.id.split('/')[1]?.slice(0, 8)} — ${s.project} · ${ago(s.mtime)}`)),
+      ),
+    );
   }
 }
 
@@ -461,7 +507,7 @@ function renderSessions(): void {
     q('.state').textContent = stateLabel(s, now);
     q('.title').textContent = s.title ?? 'Untitled session';
     const pct = Math.max(0, Math.min(100, s.contextPct));
-    q('.rest').style.left = `${pct}%`;
+    q('.rest').style.transform = `scaleX(${(1 - pct / 100).toFixed(4)})`;
     q('.pct').textContent = `${pct < 10 ? pct.toFixed(1) : Math.round(pct)}% · ${phaseAt(Math.pow(pct / 100, 0.6)).name}`;
     q('.meta').textContent = [modelName(s.model), s.effort, `${k(s.outTotal)} out`].filter(Boolean).join(' · ');
   }
@@ -485,7 +531,7 @@ function renderNow(): void {
   $('conn').className = `conn ${source !== 'live' ? '' : connected ? 'ok' : 'bad'}`;
   $('conn').title = source !== 'live' ? '' : connected ? 'Connected to the radio server' : 'Reconnecting…';
 
-  $('ladderFill').style.width = `${Math.round(progress.fraction * 100)}%`;
+  $('ladderFill').style.transform = `scaleX(${progress.fraction.toFixed(3)})`;
   $('ladderText').textContent = progress.next
     ? `${k(progress.toNext)} tokens to ${progress.next.name.toLowerCase()}`
     : 'Flow state — everything unlocked';
@@ -514,16 +560,23 @@ function renderSky(): void {
   const now = Date.now();
   const mix = lastMix ?? conductor.mix(now);
   const { sessions, focus } = conductor.view(now);
-  sky.set({
-    day: mix.day,
-    stars: mix.stars,
-    lanterns: sessions.map((s) => ({
-      seat: s.seat,
-      working: s.activity !== 'idle' && now - s.seenAt < 5 * 60_000,
-      waiting: s.activity === 'model' && s.waitingSince !== null,
-      focused: s.session === focus,
-    })),
-  });
+  const focused = sessions.find((s) => s.session === focus);
+  sky.set(
+    {
+      // Where the day is headed. The sky gets there at its own pace, and a
+      // compaction's new day comes up from the east.
+      day: focused ? dayPosition(focused.contextPct) : 0,
+      stars: mix.stars,
+      lanterns: sessions.map((s) => ({
+        seat: s.seat,
+        working: s.activity !== 'idle' && now - s.seenAt < 5 * 60_000,
+        waiting: s.activity === 'model' && s.waitingSince !== null,
+        focused: s.session === focus,
+      })),
+    },
+    snapSky,
+  );
+  snapSky = false;
 }
 
 function render(): void {
@@ -532,7 +585,7 @@ function render(): void {
   renderNow();
   renderSky();
   if (!$('score').hidden) renderLadder();
-  if (player && source === 'replay') $('replayProgress').style.width = `${Math.round(player.progress * 100)}%`;
+  if (player && source === 'replay') $('replayProgress').style.transform = `scaleX(${player.progress.toFixed(3)})`;
 }
 
 setInterval(render, 250);
@@ -689,6 +742,7 @@ Object.assign(window, {
     get beat() {
       return beat;
     },
+    sky,
     useSource,
   },
 });

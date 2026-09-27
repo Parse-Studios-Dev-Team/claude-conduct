@@ -5,23 +5,21 @@
 import { createServer } from "node:http";
 import {
   closeSync as closeSync2,
-  existsSync as existsSync2,
   openSync as openSync2,
-  readFileSync,
+  readFileSync as readFileSync3,
   readSync as readSync2,
-  readdirSync as readdirSync2,
   renameSync,
-  statSync as statSync2,
+  statSync as statSync3,
   unlinkSync,
-  writeFileSync
+  writeFileSync as writeFileSync2
 } from "node:fs";
-import { homedir } from "node:os";
-import { join as join2, resolve } from "node:path";
+import { homedir as homedir2 } from "node:os";
+import { join as join3, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
 // src/tail.ts
-import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 // src/models.ts
@@ -327,6 +325,24 @@ function findTranscripts(root2) {
   }
   return out;
 }
+function safeName(name) {
+  return /^[A-Za-z0-9._-]+$/.test(name) && !/^\.+$/.test(name);
+}
+function readSession(root2, project, session) {
+  if (!safeName(project) || !safeName(session)) return null;
+  const main = join(root2, project, `${session}.jsonl`);
+  if (!existsSync(main)) return null;
+  const { events, state } = readTranscript(readFileSync(main, "utf8"), { session });
+  const subDir = join(root2, project, session, "subagents");
+  if (existsSync(subDir)) {
+    for (const file of readdirSync(subDir)) {
+      if (!SESSION_FILE.test(file)) continue;
+      events.push(...readTranscript(readFileSync(join(subDir, file), "utf8"), { session, sub: true }).events);
+    }
+  }
+  events.sort((a, b) => a.at - b.at);
+  return { events, state };
+}
 function projectLabel(dirName) {
   const parts = dirName.split("-").filter(Boolean);
   return parts[parts.length - 1] ?? dirName;
@@ -490,6 +506,52 @@ var TranscriptWatcher = class {
   }
 };
 
+// src/shelf.ts
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, readdirSync as readdirSync2, statSync as statSync2, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join as join2 } from "node:path";
+
+// src/tape.ts
+function isTape(value) {
+  const t = value;
+  return !!t && t.app === "conduct-radio" && t.tape === 1 && Array.isArray(t.events) && typeof t.title === "string";
+}
+
+// src/shelf.ts
+var DEFAULT_SHELF = join2(homedir(), ".claude", "conduct-radio", "tapes");
+function listTapes(shelf2) {
+  let files;
+  try {
+    files = readdirSync2(shelf2).filter((f) => f.endsWith(".json") && safeName(f));
+  } catch {
+    return [];
+  }
+  const found = [];
+  for (const file of files) {
+    const tape = readTape(shelf2, file);
+    if (!tape) continue;
+    found.push({
+      id: `tape:${file}`,
+      title: tape.title,
+      project: tape.project,
+      mtime: tape.recordedAt,
+      minutes: tapeMinutes(tape),
+      out: tape.out
+    });
+  }
+  return found.sort((a, b) => b.mtime - a.mtime);
+}
+function readTape(shelf2, file) {
+  if (!safeName(file) || !file.endsWith(".json")) return null;
+  try {
+    const tape = JSON.parse(readFileSync2(join2(shelf2, file), "utf8"));
+    return isTape(tape) ? tape : null;
+  } catch {
+    return null;
+  }
+}
+var tapeMinutes = (tape) => Math.max(1, Math.round((tape.to - tape.from) / 6e4));
+
 // scripts/radio.ts
 var repoDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 var args = process.argv.slice(2);
@@ -499,20 +561,21 @@ var flag = (name) => {
 };
 var port = Number(flag("--port") ?? process.env.PORT ?? 5274);
 var shouldOpen = !args.includes("--no-open");
-var root = resolve(flag("--root") ?? join2(homedir(), ".claude", "projects"));
+var root = resolve(flag("--root") ?? join3(homedir2(), ".claude", "projects"));
+var shelf = resolve(flag("--tapes") ?? DEFAULT_SHELF);
 var stateFile = flag("--state");
 var idleExitMs = Number(flag("--idle-exit") ?? 0) * 6e4;
 async function loadApp() {
   const prebuilt = flag("--app");
   if (prebuilt) {
     const dir = resolve(prebuilt);
-    const bundle2 = readFileSync(join2(dir, "bundle.js"), "utf8");
-    return { html: () => readFileSync(join2(dir, "index.html")), bundle: bundle2 };
+    const bundle2 = readFileSync3(join3(dir, "bundle.js"), "utf8");
+    return { html: () => readFileSync3(join3(dir, "index.html")), bundle: bundle2 };
   }
   const { build } = await import("esbuild");
-  const appDir = join2(repoDir, "app");
+  const appDir = join3(repoDir, "app");
   const result = await build({
-    entryPoints: [join2(appDir, "main.ts")],
+    entryPoints: [join3(appDir, "main.ts")],
     bundle: true,
     format: "esm",
     platform: "browser",
@@ -522,7 +585,7 @@ async function loadApp() {
   });
   const bundle = result.outputFiles[0].text;
   console.log(`Bundled radio (${(bundle.length / 1024).toFixed(0)}kb)`);
-  return { html: () => readFileSync(join2(appDir, "index.html")), bundle };
+  return { html: () => readFileSync3(join3(appDir, "index.html")), bundle };
 }
 var app = await loadApp();
 var clients = /* @__PURE__ */ new Set();
@@ -545,7 +608,6 @@ watcher.start();
 setInterval(() => {
   for (const res of clients) res.write(": ping\n\n");
 }, 15e3).unref();
-var SAFE = /^[A-Za-z0-9._-]+$/;
 function readRange(path, start, length) {
   const buffer = Buffer.alloc(length);
   let fd;
@@ -582,7 +644,7 @@ function quickTitle(path, size) {
 function listSessions() {
   const found = findTranscripts(root).filter((t) => !t.sub).map((t) => {
     try {
-      const st = statSync2(t.path);
+      const st = statSync3(t.path);
       return { ...t, size: st.size, mtime: st.mtimeMs };
     } catch {
       return null;
@@ -598,31 +660,45 @@ function listSessions() {
   }));
 }
 function replay(id) {
-  const [project, session] = id.split("/");
-  if (!project || !session || !SAFE.test(project) || !SAFE.test(session)) return null;
-  const main = join2(root, project, `${session}.jsonl`);
-  if (!existsSync2(main)) return null;
-  const { events, state } = readTranscript(readFileSync(main, "utf8"), { session });
-  const subDir = join2(root, project, session, "subagents");
-  if (existsSync2(subDir)) {
-    for (const file of readdirSync2(subDir)) {
-      if (!file.endsWith(".jsonl") || !SAFE.test(file)) continue;
-      events.push(...readTranscript(readFileSync(join2(subDir, file), "utf8"), { session, sub: true }).events);
-    }
+  if (id.startsWith("tape:")) {
+    const tape = readTape(shelf, id.slice("tape:".length));
+    return tape && { events: tape.events, project: tape.project, title: tape.title };
   }
-  events.sort((a, b) => a.at - b.at);
-  return { events, project: state.project, title: state.title };
+  const [project, session] = id.split("/");
+  const found = project && session ? readSession(root, project, session) : null;
+  return found && { events: found.events, project: found.state.project, title: found.state.title };
 }
 var json = (res, status, body) => {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
 };
+var LOCAL_HOST = /^(localhost|127\.0\.0\.1)(:\d+)?$/i;
+var PAGE_POLICY = [
+  "default-src 'self'",
+  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'"
+].join("; ");
 var server = createServer((req, res) => {
+  if (!LOCAL_HOST.test(req.headers.host ?? "")) {
+    res.writeHead(403, { "content-type": "text/plain" });
+    res.end("Conduct Radio only answers on localhost.");
+    return;
+  }
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("referrer-policy", "no-referrer");
   const url2 = new URL(req.url ?? "/", "http://localhost");
   switch (url2.pathname) {
     case "/":
     case "/index.html":
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "content-security-policy": PAGE_POLICY
+      });
       res.end(app.html());
       return;
     case "/bundle.js":
@@ -649,6 +725,9 @@ var server = createServer((req, res) => {
       return;
     case "/api/sessions":
       json(res, 200, listSessions());
+      return;
+    case "/api/tapes":
+      json(res, 200, listTapes(shelf));
       return;
     case "/api/replay": {
       const found = replay(url2.searchParams.get("id") ?? "");
@@ -680,7 +759,7 @@ var actualPort = await listen(port, 20);
 var url = `http://localhost:${actualPort}`;
 if (stateFile) {
   const temp = `${stateFile}.${process.pid}.tmp`;
-  writeFileSync(temp, JSON.stringify({ app: "conduct-radio", pid: process.pid, port: actualPort, url, startedAt: Date.now() }));
+  writeFileSync2(temp, JSON.stringify({ app: "conduct-radio", pid: process.pid, port: actualPort, url, startedAt: Date.now() }));
   renameSync(temp, stateFile);
 }
 function shutdown() {
@@ -689,7 +768,7 @@ function shutdown() {
   for (const res of clients) res.end();
   if (stateFile) {
     try {
-      const state = JSON.parse(readFileSync(stateFile, "utf8"));
+      const state = JSON.parse(readFileSync3(stateFile, "utf8"));
       if (state.pid === process.pid) unlinkSync(stateFile);
     } catch {
     }
