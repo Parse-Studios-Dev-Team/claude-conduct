@@ -31,7 +31,8 @@ running? **Demo** climbs all eight levels in two minutes, and **Replay** plays
 back any past session.
 
 **Tapes.** When Claude finishes something you'd like to hear again, run
-`/conduct-radio:radio tape` (optionally with a title). It saves that turn to
+`/conduct-radio:radio tape`, optionally with a title (`tape Brandon's fix`
+works as typed, no quoting needed). It saves that turn to
 `~/.claude/conduct-radio/tapes/`, and it's under **Replay → Tapes** from then
 on. Like the radio itself, a tape holds token counts and event kinds, never
 what was said.

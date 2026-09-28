@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,14 +33,29 @@ test('the marketplace lists the plugin under the same name as its manifest', () 
   assert.equal((market.owner as { name: string }).name, 'Parse Studios');
 });
 
-test('the skill runs the launcher that ships with the plugin', () => {
-  const skill = readFileSync(join(pluginDir, 'skills', 'radio', 'SKILL.md'), 'utf8');
-  assert.match(skill, /^---\nname: radio\n/);
-  assert.match(skill, /disable-model-invocation: true/, 'only you start the music');
-  assert.match(
-    skill,
-    /^!`node "\$\{CLAUDE_PLUGIN_ROOT\}\/server\/radio-ctl\.mjs" \$ARGUMENTS --data "\$\{CLAUDE_PLUGIN_DATA\}" --session "\$\{CLAUDE_SESSION_ID\}"`$/m,
+const skill = (): string => readFileSync(join(pluginDir, 'skills', 'radio', 'SKILL.md'), 'utf8');
+
+/** The skill's shell command, pulled out the way Claude Code does it: a ```! block, trimmed. */
+function skillCommand(text: string): string {
+  const blocks = [...text.matchAll(/```!\s*\n?([\s\S]*?)\n?```/g)].map((m) => m[1]!.trim());
+  assert.equal(blocks.length, 1, 'one shell block');
+  return blocks[0]!;
+}
+
+test('the skill runs the launcher that ships with the plugin, with what you typed on stdin', () => {
+  const text = skill();
+  assert.match(text, /^---\nname: radio\n/);
+  assert.match(text, /disable-model-invocation: true/, 'only you start the music');
+  assert.equal(
+    skillCommand(text),
+    [
+      `node "\${CLAUDE_PLUGIN_ROOT}/server/radio-ctl.mjs" --data "\${CLAUDE_PLUGIN_DATA}" --session "\${CLAUDE_SESSION_ID}" --args-stdin <<'CONDUCT_RADIO_ARGS'`,
+      '$ARGUMENTS',
+      'CONDUCT_RADIO_ARGS',
+    ].join('\n'),
   );
+  // Claude Code doesn't escape `$ARGUMENTS`: anywhere but inside the quoted heredoc, the shell would parse it.
+  assert.doesNotMatch(text.replace(/```!\s*\n?[\s\S]*?\n?```/g, ''), /\$ARGUMENTS|!`/);
   for (const file of ['server/radio-ctl.mjs', 'server/radio.mjs', 'app/bundle.js', 'app/index.html']) {
     assert.ok(existsSync(join(pluginDir, file)), file);
   }
@@ -233,6 +248,65 @@ test('stop never signals a process that isn’t the radio', async () => {
     assert.ok(!existsSync(join(box.data, 'server.json')), 'the stale state file is cleared');
   } finally {
     bystander.kill();
+    box.cleanup();
+  }
+});
+
+test('whatever you type after the command reaches the launcher as text, and nothing in it runs', async () => {
+  const box = sandbox();
+  const root = join(box.data, '..');
+  const home = join(root, 'home');
+  try {
+    // A finished turn in session abc123, under the $HOME the skill will see.
+    const at = (s: number): string => new Date(Date.parse('2026-09-27T01:00:00Z') + s * 1000).toISOString();
+    const project = join(home, '.claude', 'projects', '-work-app');
+    mkdirSync(project, { recursive: true });
+    writeFileSync(
+      join(project, 'abc123.jsonl'),
+      [
+        JSON.stringify({ type: 'user', timestamp: at(0), cwd: '/work/app', message: { role: 'user', content: 'fix it' } }),
+        JSON.stringify({
+          type: 'assistant',
+          timestamp: at(60),
+          message: {
+            id: 'm1',
+            model: 'claude-opus-5-5',
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 0, output_tokens: 900, cache_creation_input_tokens: 0, cache_read_input_tokens: 40_000 },
+            content: [{ type: 'text', text: 'done' }],
+          },
+        }),
+      ].join('\n'),
+    );
+
+    // As Claude Code runs the skill: every placeholder pasted in as-is, `$ARGUMENTS` unescaped.
+    const shellFor = (typed: string): string =>
+      skillCommand(skill())
+        .replaceAll('${CLAUDE_PLUGIN_ROOT}', () => pluginDir)
+        .replaceAll('${CLAUDE_PLUGIN_DATA}', () => box.data)
+        .replaceAll('${CLAUDE_SESSION_ID}', () => 'abc123')
+        .replaceAll('$ARGUMENTS', () => typed);
+    const env = { ...process.env, HOME: home };
+
+    const hostile = `Brandon's "fix" $(touch pwned-1) \`touch pwned-2\`; touch pwned-3 | cat && echo hi`;
+    for (const shell of ['bash', 'sh']) {
+      const { stdout } = await run(shell, ['-c', shellFor(`tape ${hostile}`)], { cwd: root, env });
+      assert.equal(
+        stdout.trim(),
+        `Saved the tape “${hostile}” (1 min, 900 output tokens). Play it on the radio under Replay → Tapes.`,
+        shell,
+      );
+    }
+    assert.deepEqual(readdirSync(root).filter((f) => f.startsWith('pwned')), [], 'nothing typed was run');
+    const shelf = join(home, '.claude', 'conduct-radio', 'tapes');
+    const titles = readdirSync(shelf).map((f) => (readJson(join(shelf, f)) as { title: string }).title);
+    assert.deepEqual(titles, [hostile, hostile]);
+
+    const { stdout: quoted } = await run('bash', ['-c', shellFor('tape "Smooth sky"')], { cwd: root, env });
+    assert.match(quoted, /^Saved the tape “Smooth sky” /, 'quotes around a title are dropped');
+    const { stdout: status } = await run('bash', ['-c', shellFor('status')], { cwd: root, env });
+    assert.match(status, /not running/);
+  } finally {
     box.cleanup();
   }
 });

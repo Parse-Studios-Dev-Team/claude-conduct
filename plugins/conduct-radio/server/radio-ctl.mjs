@@ -434,7 +434,19 @@ var flag = (name) => {
   return i >= 0 ? args[i + 1] ?? null : null;
 };
 var VALUE_FLAGS = /* @__PURE__ */ new Set(["--data", "--port", "--root", "--idle-exit", "--session", "--tapes"]);
-var positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && VALUE_FLAGS.has(args[i - 1])));
+function typedWords() {
+  if (!args.includes("--args-stdin")) {
+    return args.filter((a, i) => !a.startsWith("--") && !(i > 0 && VALUE_FLAGS.has(args[i - 1])));
+  }
+  let text = "";
+  try {
+    text = readFileSync3(0, "utf8").trim();
+  } catch {
+  }
+  if (text === "$ARGUMENTS") text = "";
+  return text ? text.split(/\s+/) : [];
+}
+var positional = typedWords();
 var command = (positional[0] ?? "start").toLowerCase();
 var substituted = (value) => value && !value.includes("${") ? value : null;
 var dataDir = resolve(substituted(flag("--data")) ?? join3(homedir2(), ".claude", "conduct-radio"));
@@ -564,7 +576,8 @@ async function tape() {
     shelf: resolve(flag("--tapes") ?? DEFAULT_SHELF),
     // `${CLAUDE_SESSION_ID}` from the skill; without it, the latest session.
     session: substituted(flag("--session")),
-    title: positional.slice(1).join(" ") || null,
+    // `tape "Smooth sky"` means the title, not the quotes.
+    title: positional.slice(1).join(" ").replace(/^(["'“‘])(.*)(["'”’])$/s, "$2") || null,
     finished: true
   });
   if ("error" in result) {
