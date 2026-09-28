@@ -5,6 +5,7 @@
  *
  *   radio-ctl [start|stop|status] [--data <dir>] [--no-open] [--port <n>] [--root <dir>]
  *   radio-ctl tape [title…] [--session <id>] [--root <dir>] [--tapes <dir>]
+ *   … --args-stdin    read the command and title from stdin (how the skill passes them)
  *
  * `start` reuses a running server when there is one, otherwise launches one in
  * the background, and opens the page either way. It only ever reports what it
@@ -42,7 +43,31 @@ const flag = (name: string): string | null => {
   return i >= 0 ? (args[i + 1] ?? null) : null;
 };
 const VALUE_FLAGS = new Set(['--data', '--port', '--root', '--idle-exit', '--session', '--tapes']);
-const positional = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && VALUE_FLAGS.has(args[i - 1]!)));
+
+/**
+ * The words you typed after the command: a command, then (for `tape`) a title.
+ *
+ * The skill hands them over on stdin (`--args-stdin`), in a quoted heredoc,
+ * rather than on the command line. Claude Code pastes `$ARGUMENTS` into the
+ * shell unescaped, so `tape Brandon's fix` on the command line breaks the
+ * command, and a `$(…)` in it would run. Typed words are never flags.
+ */
+function typedWords(): string[] {
+  if (!args.includes('--args-stdin')) {
+    return args.filter((a, i) => !a.startsWith('--') && !(i > 0 && VALUE_FLAGS.has(args[i - 1]!)));
+  }
+  let text = '';
+  try {
+    text = readFileSync(0, 'utf8').trim();
+  } catch {
+    /* nothing on stdin */
+  }
+  // Left unsubstituted, outside Claude Code: nothing was typed.
+  if (text === '$ARGUMENTS') text = '';
+  return text ? text.split(/\s+/) : [];
+}
+
+const positional = typedWords();
 const command = (positional[0] ?? 'start').toLowerCase();
 
 // `${CLAUDE_PLUGIN_DATA}` and `${CLAUDE_SESSION_ID}` are substituted by Claude
@@ -201,7 +226,8 @@ async function tape(): Promise<number> {
     shelf: resolve(flag('--tapes') ?? DEFAULT_SHELF),
     // `${CLAUDE_SESSION_ID}` from the skill; without it, the latest session.
     session: substituted(flag('--session')),
-    title: positional.slice(1).join(' ') || null,
+    // `tape "Smooth sky"` means the title, not the quotes.
+    title: positional.slice(1).join(' ').replace(/^(["'“‘])(.*)(["'”’])$/s, '$2') || null,
     finished: true,
   });
   if ('error' in result) {
