@@ -279,14 +279,18 @@ test('whatever you type after the command reaches the launcher as text, and noth
       ].join('\n'),
     );
 
-    // As Claude Code runs the skill: every placeholder pasted in as-is, `$ARGUMENTS` unescaped.
-    const shellFor = (typed: string): string =>
-      skillCommand(skill())
-        .replaceAll('${CLAUDE_PLUGIN_ROOT}', () => pluginDir)
-        .replaceAll('${CLAUDE_PLUGIN_DATA}', () => box.data)
-        .replaceAll('${CLAUDE_SESSION_ID}', () => 'abc123')
-        .replaceAll('$ARGUMENTS', () => typed);
-    const env = { ...process.env, HOME: home };
+    // As Claude Code runs the skill, `$ARGUMENTS` pasted in unescaped. The
+    // `${CLAUDE_…}` placeholders are also shell variables, so the paths go in
+    // through the environment rather than into the command's text; only what
+    // was typed — the thing under test — is spliced in.
+    const shellFor = (typed: string): string => skillCommand(skill()).replaceAll('$ARGUMENTS', () => typed);
+    const env = {
+      ...process.env,
+      HOME: home,
+      CLAUDE_PLUGIN_ROOT: pluginDir,
+      CLAUDE_PLUGIN_DATA: box.data,
+      CLAUDE_SESSION_ID: 'abc123',
+    };
 
     const hostile = `Brandon's "fix" $(touch pwned-1) \`touch pwned-2\`; touch pwned-3 | cat && echo hi`;
     for (const shell of ['bash', 'sh']) {
